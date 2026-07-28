@@ -1,0 +1,66 @@
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env*.local
+
+# typescript
+*.tsbuildinfo
+
+# generated native folders
+/ios
+/android
+
+# packaged odoo module
+*.zip
+
+# Firebase / FCM — the service-account PRIVATE KEY must never be committed.
+# google-services.json is NOT ignored: it's a client config that ships inside the
+# APK anyway, and EAS Build excludes gitignored files (even tracked ones) from the
+# build, which breaks the Android build. So it stays tracked.
+*-firebase-adminsdk-*.json
+GoogleService-Info.plist
+
+# testing artifacts + build cache
+ui-artifacts/
+__pycache__/
+*.pyc
+
+# local test/dev scripts + flows (local test logins — kept out of the repo)
+scripts/api-smoke.mjs
+scripts/api-functional.mjs
+scripts/test-autoclose.mjs
+scripts/deploy-upgrade.mjs
+.maestro/_login-dev.yaml
+.maestro/_url-fix.yaml
+.maestro/30-touch-nav.yaml
+.maestro/31-client-login.yaml

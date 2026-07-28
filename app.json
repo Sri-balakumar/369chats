@@ -1,0 +1,77 @@
+{
+  "expo": {
+    "name": "KRA KPI",
+    "slug": "kra-kpi-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon369.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": false,
+    "android": {
+      "package": "com.alphalize.krakpi",
+      "googleServicesFile": "./google-services.json",
+      "permissions": [
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "android.permission.USE_EXACT_ALARM",
+        "android.permission.USE_FULL_SCREEN_INTENT",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.WAKE_LOCK",
+        "android.permission.VIBRATE",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA"
+      ],
+      "adaptiveIcon": {
+        "backgroundColor": "#FFFFFF",
+        "foregroundImage": "./assets/adaptive-icon-foreground.png"
+      }
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.alphalize.krakpi"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "./plugins/withAlarmLockScreen",
+      "./plugins/android-cleartext-traffic",
+      "expo-web-browser",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/android-icon-monochrome.png",
+          "color": "#1E40AF"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos to set a profile picture.",
+          "cameraPermission": "Allow $(PRODUCT_NAME) to use the camera to take a profile picture."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to use the camera to take a profile picture."
+        }
+      ],
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/logo369.png",
+          "imageWidth": 220,
+          "resizeMode": "contain",
+          "backgroundColor": "#EBF1FC"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "0a997e07-b838-4445-b1e9-2d381c617135"      }
+    },
+    "owner": "jicol"
+  }
+}
