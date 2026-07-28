@@ -162,11 +162,18 @@ export default function ConnectScreen({ onLogin, goBack, visible = true }) {
         setupLogin: result.username || username.trim(),
         setupName: result.name || '',
       });
-      // Device-setup ONLY: the Odoo login just points the app at the server and
-      // provisions it. We do NOT log this Odoo user in — after setup the app
-      // shows the mobile-number (non-Odoo) login page, not Home.
-      log.info('device provisioned — returning to app login', { serverUrl: base, db: selectedDb });
-      onLogin();
+      // Hand the authenticated identity up. App.js decides what it means: with
+      // the mobile-number login switched on it is ignored and this stays pure
+      // device-setup; with it off, App.js starts a session from this profile so
+      // the Odoo login IS the app login.
+      log.info('device provisioned', { serverUrl: base, db: selectedDb, uid: result.uid });
+      onLogin({
+        name: result.name || result.username || username.trim(),
+        username: result.username || username.trim(),
+        uid: result.uid,
+        db: selectedDb,
+        serverUrl: base,
+      });
     } catch (err) {
       // Modern Odoo throws AccessDenied for wrong credentials — show that under
       // the username field, not the Server URL field.
@@ -226,7 +233,7 @@ export default function ConnectScreen({ onLogin, goBack, visible = true }) {
             <Ionicons name="shield-checkmark" size={28} color="#fff" />
           </View>
           <Text style={s.heroTitle}>Welcome back</Text>
-          <Text style={s.heroSub}>Sign in to your Alphalize KRA &amp; KPI workspace</Text>
+          <Text style={s.heroSub}>Sign in to your Alphalize 369Chats workspace</Text>
         </View>
 
         {/* Form card */}

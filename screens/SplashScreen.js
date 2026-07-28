@@ -1,7 +1,11 @@
 // SPLASH / INTRO — matches the 369 ai.Biz hero mockup. Floating feature cards,
-// the 369 logo, a "Track. Analyze. Improve. Grow." headline, the full SMART/KPI
-// wheel (spins then settles), and the alphalize logo on a wave. Built for a
-// polished intro-video feel, then fades into the login screen.
+// the 369 logo, a headline, the six-segment wheel (spins then settles), and the
+// alphalize logo on a wave. Built for a polished intro-video feel, then fades
+// into the login screen.
+//
+// The wheel used to spell out SMART/KPI. The geometry is the design — six 60°
+// segments, labels on a ring, a disc in the middle — so it stayed; only the words
+// changed. Relabel SEG below to whatever the product is about.
 import React, { useEffect, useRef } from 'react';
 import { View, Text, Image, Animated, Easing, StyleSheet, Dimensions, StatusBar as RNStatusBar } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -11,14 +15,14 @@ import { COLORS } from '../theme';
 const { width: SW } = Dimensions.get('window');
 const TOP = (RNStatusBar.currentHeight || 0);
 
-// SMART segments: colour, label, in-segment icon, centre angle.
+// Wheel segments: colour, label, in-segment icon, centre angle (60° apart).
 const SEG = [
-  { label: 'Specific', color: '#F5A623', icon: '⚙️', a: -90 },
-  { label: 'Time-bound', color: '#3F3F46', icon: '⏱️', a: -30 },
-  { label: 'Relevant', color: '#EC407A', icon: '💡', a: 30 },
-  { label: 'Key Performance\nIndicator', color: '#7E57C2', icon: '📊', a: 90, wide: true },
-  { label: 'Attainable', color: '#26C6DA', icon: '🎯', a: 150 },
-  { label: 'Measurable', color: '#8BC34A', icon: '📏', a: 210 },
+  { label: 'Secure', color: '#F5A623', icon: '🔒', a: -90 },
+  { label: 'Fast', color: '#3F3F46', icon: '⚡', a: -30 },
+  { label: 'Simple', color: '#EC407A', icon: '💡', a: 30 },
+  { label: 'Built for\nyour team', color: '#7E57C2', icon: '👥', a: 90, wide: true },
+  { label: 'Anywhere', color: '#26C6DA', icon: '🌐', a: 150 },
+  { label: 'Reliable', color: '#8BC34A', icon: '🛡️', a: 210 },
 ];
 
 const WSIZE = Math.min(300, SW - 40);   // wheel container
@@ -93,15 +97,15 @@ export default function SplashScreen({ onDone }) {
 
       {/* ---------- HEADLINE ---------- */}
       <Animated.View style={{ alignItems: 'center', opacity: up, transform: [{ translateY: rise }] }}>
-        <Text style={s.h1}>Track. Analyze.</Text>
+        <Text style={s.h1}>Connect. Share.</Text>
         <Text style={s.h1}>
-          <Text style={{ color: '#17A2C4' }}>Improve. </Text>
+          <Text style={{ color: '#17A2C4' }}>Deliver. </Text>
           <Text style={{ color: '#F5931E' }}>Grow.</Text>
         </Text>
         <View style={s.hUnderline} />
       </Animated.View>
 
-      {/* ---------- KPI WHEEL ---------- */}
+      {/* ---------- WHEEL ---------- */}
       <View style={{ width: WSIZE, height: WSIZE, alignSelf: 'center', marginTop: 8 }}>
         {/* labels with a colour dot */}
         {SEG.map((g) => {
@@ -132,9 +136,9 @@ export default function SplashScreen({ onDone }) {
           })}
         </Animated.View>
 
-        {/* KPI centre */}
+        {/* centre disc */}
         <View style={s.center} pointerEvents="none">
-          <View style={s.centerCircle}><Text style={s.kpi}>KPI</Text></View>
+          <View style={s.centerCircle}><Text style={s.centerTxt}>369</Text></View>
         </View>
       </View>
 
@@ -173,7 +177,7 @@ const s = StyleSheet.create({
     width: '100%', height: '100%', borderRadius: 999, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center',
     shadowColor: '#1e293b', shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6,
   },
-  kpi: { fontSize: 24, fontWeight: '900', color: COLORS.navy, letterSpacing: 1 },
+  centerTxt: { fontSize: 24, fontWeight: '900', color: COLORS.navy, letterSpacing: 1 },
 
   bottom: { flex: 1, justifyContent: 'flex-end', alignItems: 'center', minHeight: 90 },
   alpha: { width: 180, height: 50, marginBottom: 20 },

@@ -73,7 +73,7 @@ export default function SignUpScreen({ onDone, goLogin }) {
 
         {/* Heading */}
         <Text style={s.title}>Create your account</Text>
-        <Text style={s.sub}>Join 369 ai.Biz and start managing your{'\n'}KPIs smarter, better, faster.</Text>
+        <Text style={s.sub}>Join 369 ai.Biz and get started{'\n'}in a couple of taps.</Text>
 
         {/* Form */}
         <View style={s.form}>

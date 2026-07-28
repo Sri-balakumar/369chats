@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <!-- Daily safety-net for workday sessions.  Closes any sessions
+             still 'open' from past days + retro-creates closed sessions
+             for developers who logged task time today but never opened
+             the dashboard.  Fires the daily-summary WhatsApp on both
+             paths.  See models/kpi_work_session.py._cron_auto_close_sessions. -->
+        <record id="ir_cron_kpi_workday_auto_close" model="ir.cron">
+            <field name="name">KRA/KPI: Auto-close workday sessions + daily summary</field>
+            <field name="model_id" ref="model_kpi_work_session"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_auto_close_sessions()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <!-- Midnight cutoff: every 5 min, promptly end any workday that crossed
+             12 AM (24-hour workday) — pauses the running task + notifies the dev.
+             See models/kpi_work_session.py._cron_close_overdue_workdays. -->
+        <record id="ir_cron_kpi_close_overdue_workdays" model="ir.cron">
+            <field name="name">KRA/KPI: Close overdue workdays (midnight cutoff)</field>
+            <field name="model_id" ref="model_kpi_work_session"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_close_overdue_workdays()</field>
+            <field name="interval_number">5</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <!-- Forgotten workday: every 5 min, auto-End a workday whose board tab has
+             been gone longer than company.workday_idle_close_minutes (default 15).
+             Full End Workday + daily summary. A dev who keeps the board open still
+             heartbeats and is never closed. See _cron_close_idle_workdays. -->
+        <record id="ir_cron_kpi_close_idle_workdays" model="ir.cron">
+            <field name="name">KRA/KPI: Auto End forgotten workdays (idle cutoff)</field>
+            <field name="model_id" ref="model_kpi_work_session"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_close_idle_workdays()</field>
+            <field name="interval_number">5</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
+    </data>
+</odoo>

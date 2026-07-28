@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- The frozen End-Workday summary images: date > developer > image. -->
+    <record id="action_kpi_workday_snapshot" model="ir.actions.client">
+        <field name="name">Workday Snapshots</field>
+        <field name="tag">kpi_workday_snapshot</field>
+    </record>
+
+    <!-- Reparented under Settings (with the other operational/admin tools).
+         Gated with the house triple used by every recent admin screen
+         (Client Pre-Approvals, Login Management, Configuration). NOT group_kra_manager —
+         that one is deprecated (see security/kra_kpi_groups.xml). -->
+    <menuitem id="menu_kpi_workday_snapshot"
+              name="Workday Snapshots"
+              parent="kra_kpi_module.menu_kpi_settings"
+              action="kra_kpi_module.action_kpi_workday_snapshot"
+              sequence="72"
+              groups="kra_kpi_module.group_kra_admin,kra_kpi_module.group_kra_owner,base.group_system"/>
+
+</odoo>

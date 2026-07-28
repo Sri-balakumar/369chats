@@ -203,7 +203,7 @@ function Row({ item, index = 0, onPress, showWho }) {
   );
 }
 
-export default function NotificationsScreen({ onBack, onOpen, isClient = false }) {
+export default function NotificationsScreen({ onBack, onOpen }) {
   const [items, setItems] = useState([]);
   const [unread, setUnread] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -274,38 +274,12 @@ export default function NotificationsScreen({ onBack, onOpen, isClient = false }
         log.warn('markRead failed', e?.message);
       }
     }
-    if (!onOpen) return;
-    // Some rows point at something that ISN'T a task. "X ended their workday"
-    // opens that day's frozen summary image — checked FIRST because such a row
-    // also carries a kpi_id (the arbitrary task _notify was anchored on), and
-    // routing on that would dump the admin on an unrelated task.
-    // Invoice notifications open the invoice (client → My Invoices, admin →
-    // Client Invoices) — checked before kpi_id, which is only the anchor task.
-    if (item.invoice_id) {
-      log.info('notification → invoice', { invoiceId: item.invoice_id });
-      onOpen(isClient ? 'myinvoices' : 'clientinvoices', item.invoice_id);
-      return;
-    }
-    if (item.snapshot_id) {
-      log.info('notification → snapshot', { snapshotId: item.snapshot_id });
-      onOpen('snapshots', item.snapshot_id);
-      return;
-    }
-    // "Daily report ready" opens that report's PDF on the Daily Reports screen —
-    // also checked before kpi_id, for the same reason (it carries an anchor kpi_id).
-    if (item.report_id) {
-      log.info('notification → daily report', { reportId: item.report_id });
-      onOpen('dailyreports', item.report_id);
-      return;
-    }
-    // Role decides the destination. A CLIENT has no Action Board — it loads 0
-    // tasks for them and then can't even fetch the row — so their tasks open in
-    // My Requests. Uses the KRA/KPI role (kpi_role: admin|client|user), the same
-    // single value Login Management shows.
-    if (item.kpi_id) {
-      onOpen(isClient ? 'mytasks' : 'actionboard', item.kpi_id);
-    }
-  }, [onOpen, isClient]);
+    // Tapping a row marks it read (above) but navigates nowhere: every
+    // destination this used to open — the task board, invoices, snapshots, daily
+    // reports — was a KRA/KPI screen and is gone. Restore routing here by
+    // branching on whatever id the chat notifications carry and calling
+    // onOpen(dest, id); App.js's open() already forwards the id.
+  }, [onOpen]);
 
   const onMarkAll = useCallback(async () => {
     if (!unread) return;

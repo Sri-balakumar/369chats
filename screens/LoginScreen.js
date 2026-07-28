@@ -1,7 +1,6 @@
-// WELCOME — 369 ai.Biz layout. 369 logo → hero photo (KRA/KPI + man, animated
-// flow) → white card with alphalize welcome, decorative Track·Measure·Achieve
-// line, and a single "Tap to Enter Login Page" button that opens the Odoo
-// connection flow (URL → database → username/password).
+// WELCOME — 369 ai.Biz layout. 369 logo → hero photo → white card with the
+// alphalize welcome, a decorative divider line, and a single "Tap to Enter Login
+// Page" button that opens the Odoo connection flow (URL → database → login).
 import React, { useRef, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet, Image,
@@ -12,7 +11,6 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { COLORS } from '../theme';
-import FlowOverlay from '../components/FlowOverlay';
 
 const { width: SW } = Dimensions.get('window');
 const HERO_H = SW * (1304 / 1283);     // full composite hero (369 logo baked in)
@@ -69,8 +67,10 @@ export default function LoginScreen({ goConnect }) {
         {/* status-bar pad (matches hero bg) + single hero image (369 baked in) */}
         <View style={s.statusPad} />
         <Animated.View style={[s.heroWrap, { opacity: heroIn }]}>
+          {/* Plain hero. The animated chevrons that used to sweep toward "KRA" and
+              "KPI" labels went with FlowOverlay — their coordinates were pinned to
+              that artwork. */}
           <Image source={require('../assets/loginhero.png')} style={s.hero} resizeMode="cover" onLoad={runEnter} />
-          <FlowOverlay />
         </Animated.View>
 
         {/* White card with a curved (wave) top edge */}
@@ -91,21 +91,21 @@ export default function LoginScreen({ goConnect }) {
           <Image source={require('../assets/logo369.png')} style={s.watermark} resizeMode="contain" pointerEvents="none" />
           {/* welcome (centered) */}
           <Text style={s.welcomeTo}>Welcome to</Text>
-          <Text style={s.welcomeBig}>Alphalize KRA & KPI</Text>
+          <Text style={s.welcomeBig}>369Chats</Text>
 
-          {/* decorative Track · Measure · Achieve */}
+          {/* decorative divider */}
           <View style={s.decorRow}>
             <View style={s.decorLine} />
             <Text style={s.decorTxt}>
-              <Text style={{ color: COLORS.navy }}>Track. </Text>
-              <Text style={{ color: '#1E6FD9' }}>Measure. </Text>
-              <Text style={{ color: '#2BB673' }}>Achieve.</Text>
+              <Text style={{ color: COLORS.navy }}>Connect. </Text>
+              <Text style={{ color: '#1E6FD9' }}>Share. </Text>
+              <Text style={{ color: '#2BB673' }}>Deliver.</Text>
             </Text>
             <View style={s.decorLine} />
           </View>
 
           <Text style={s.tagline}>
-            Sign in to your workspace to track goals, measure performance, and achieve targets.
+            Sign in to your workspace to get started.
           </Text>
 
           {/* single entry point → Odoo connection / login flow */}

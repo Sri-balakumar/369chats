@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- RETIRED. This drove the old WhatsApp design where pre_approval_request
+         went to ONE client at a time and was re-fired every 30 min to roll to the
+         next one. Approval now happens in the app: every client user is notified
+         at once and the first to answer decides, so there is nobody to escalate
+         to. _cron_escalate_pre_approval is now a no-op.
+
+         noupdate="0" (was "1") ON PURPOSE: with noupdate="1" this record would
+         never be rewritten on upgrade, so an already-deployed DB would keep
+         running the old cron forever. Letting the update through is what actually
+         switches it off.
+
+         The 5-minute auto-approve cron (kpi_partial_timeout_cron.xml) is now the
+         only pre-approval timer. -->
+    <data noupdate="0">
+        <record id="ir_cron_kpi_pre_approval_escalate" model="ir.cron">
+            <field name="name">KRA/KPI: Escalate pre-approval to next client (RETIRED)</field>
+            <field name="model_id" ref="model_kra_kpi"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_escalate_pre_approval()</field>
+            <field name="interval_number">5</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="False"/>
+        </record>
+    </data>
+</odoo>

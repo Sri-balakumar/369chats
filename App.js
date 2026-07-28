@@ -1,7 +1,13 @@
-// KRA/KPI app shell: spinning KPI-wheel Splash → Welcome → Login (Odoo connect)
-// → Home. A remembered Odoo session boots straight to Home after the splash.
+// App shell: Splash → Welcome → Odoo device setup (Connect) → the chat list.
+// A remembered session boots straight to the chat list after the splash.
+//
+// Navigation is a hand-rolled state machine, not a navigator: `appScreen` holds
+// the current post-login route and renderScreen() maps it to a component. The
+// root is 'chats' — the app opens on the conversation list the way WhatsApp does,
+// with no dashboard in front of it. Adding a screen is an import, a branch below,
+// and an entry in the chat list's ⋮ menu.
 import React, { useState, useEffect, useRef } from 'react';
-import { BackHandler, View, ActivityIndicator, AppState, Alert } from 'react-native';
+import { BackHandler, AppState } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import Constants from 'expo-constants';
@@ -9,28 +15,21 @@ import * as Notifications from 'expo-notifications';
 import SplashScreen from './screens/SplashScreen';
 import LoginScreen from './screens/LoginScreen';
 import ConnectScreen from './screens/ConnectScreen';
-import HomeScreen from './screens/HomeScreen';
-import KraKpiDashboard from './screens/KraKpiDashboard';
-import KpiActionBoard from './screens/KpiActionBoard';
-import UploadAmendments from './screens/UploadAmendments';
-import OwnerDashboard from './screens/OwnerDashboard';
-import LiveTracking from './screens/LiveTracking';
 import NotificationsScreen from './screens/NotificationsScreen';
 import ConfigurationScreen from './screens/ConfigurationScreen';
 import LoginManagementScreen from './screens/LoginManagementScreen';
 import UsersScreen from './screens/UsersScreen';
-import WorkdaySnapshots from './screens/WorkdaySnapshots';
-import DailyReports from './screens/DailyReports';
 import CompanyBranding from './screens/CompanyBranding';
-import WorkReport from './screens/WorkReport';
-import ClientInvoices from './screens/ClientInvoices';
-import MyWorkday from './screens/MyWorkday';
-import ClientTasks from './screens/ClientTasks';
-import GenerateClientFiles from './screens/GenerateClientFiles';
-import ReassignmentHistory from './screens/ReassignmentHistory';
-import ClientTaskQueue from './screens/ClientTaskQueue';
 import UserManual from './screens/UserManual';
-import StartWorkingScreen from './screens/StartWorkingScreen';
+import ChatListScreen from './screens/ChatListScreen';
+import ChatThreadScreen from './screens/ChatThreadScreen';
+import NewChatScreen from './screens/NewChatScreen';
+import ContactInfoScreen from './screens/ContactInfoScreen';
+import ChatSearchScreen from './screens/ChatSearchScreen';
+import ChatMediaScreen from './screens/ChatMediaScreen';
+import StarredScreen from './screens/StarredScreen';
+import GroupManageScreen from './screens/GroupManageScreen';
+import ChatSettingsScreen from './screens/ChatSettingsScreen';
 import AppLoginScreen from './screens/AppLoginScreen';
 import AlarmScreen from './screens/AlarmScreen';
 import ScreenTransition from './components/ScreenTransition';
@@ -47,13 +46,21 @@ try {
   EventType = nf.EventType;
 } catch (_) { /* notifee native module absent (pre-rebuild) — alarm inert */ }
 import * as session from './api/session';
-import { getConnection, getRoleState, saveRoleState } from './api/session';
-import { jsonRpc } from './api/odooApi';
 import { createLogger } from './api/logger';
 import { registerForPushAsync, unregisterPush } from './services/push';
-import { pairingStatus } from './services/pairing';
+import realtime from './services/chatRealtime';
 
 const log = createLogger('App');
+
+// Mobile-number sign-in (AppLoginScreen + services/appAuth, the /kpi_app/* routes).
+// HIDDEN, NOT DELETED — both files are intact and this flag is the only thing
+// standing between them and the login flow. Flip to true to bring it back.
+//
+// While it is off, the Odoo login in ConnectScreen doubles as the app login: it
+// provisions the device AND starts the session from the account that just
+// authenticated. Turning it back on makes ConnectScreen pure device-setup again
+// and the number screen becomes the way in, exactly as it was.
+const NUMBER_LOGIN_ENABLED = false;
 
 // Definitive runtime check: 'storeClient' = Expo Go (local notifications DON'T
 // display there); 'standalone'/'bare' = a real dev/standalone build (they do).
@@ -81,8 +88,8 @@ Notifications.setNotificationHandler({
   },
 });
 
-// SafeAreaProvider supplies the real system-bar insets (used by TabBar to sit
-// above the phone's nav/gesture bar).
+// SafeAreaProvider supplies the real system-bar insets — every chat screen pads
+// by insets.bottom so edge-to-edge doesn't draw content under the nav/gesture bar.
 export default function App() {
   return (
     <SafeAreaProvider>
@@ -99,113 +106,61 @@ function AppInner() {
   const [restoring, setRestoring] = useState(true); // reading saved session
   const [screen, setScreen] = useState('login');    // login (welcome) | connect
   const [user, setUser] = useState(null);
-  const [appScreen, setAppScreen] = useState('home'); // post-login: home | dashboard | actionboard | startworking
-  const [focusTaskId, setFocusTaskId] = useState(null); // task to scroll-to + pulse on the board
-  // Snapshot to auto-expand + flash on the Workday Snapshots screen, set when an
-  // admin taps an "ended their workday" notification. Null on every other route.
-  const [focusSnapshotId, setFocusSnapshotId] = useState(null);
-  // Report to auto-open on the Daily Reports screen, set when an admin taps a
-  // "Daily report ready" notification. Null on every other route.
-  const [focusReportId, setFocusReportId] = useState(null);
-  // Invoice to auto-open on the (My) Invoices screen, set when a notification about
-  // an invoice is tapped. Null on every other route.
-  const [focusInvoiceId, setFocusInvoiceId] = useState(null);
+  // Post-login route. 'chats' is the root, the way WhatsApp opens on the
+  // conversation list — there is no dashboard in front of it.
+  const [appScreen, setAppScreen] = useState('chats');
+  // Id a notification tap wants the destination screen to focus/flash. One slot:
+  // only one screen is open at a time, and it clears on the way back to the root
+  // so a stale id can't make an unrelated row flash on the next visit. Nothing
+  // consumes it yet — open() threads it through, ready for the first screen that wants it.
+  const [focusId, setFocusId] = useState(null);
   // Set when a task ALARM fires (services/alarm.js full-screen intent). Holds
   // { task, notifId }; while non-null the ringing AlarmScreen takes over the whole
   // app (even before login) so Stop is always reachable to silence it.
   const [alarmData, setAlarmData] = useState(null);
-  const [devLocked, setDevLocked] = useState(false);  // this user is a developer who must pair
-  const [devPaired, setDevPaired] = useState(false);  // developer's device is currently paired
-  // Pairing 'mode' ('resume' = workday still open but unpaired; 'start' = none) and
-  // 'dayDone' (developer ENDED today → one start + one end per day). Both come from
-  // pairingStatus(); they drive the Home read-only bar's Continue/Start/Ended label.
-  const [pairMode, setPairMode] = useState('start');
-  const [dayDone, setDayDone] = useState(false);
-  const [gateReady, setGateReady] = useState(false);  // role gate resolved → avoids a Home flash before the PIN gate
+  // The conversation ChatThreadScreen is showing. Held here rather than in the
+  // list screen so a notification tap can open a thread directly.
+  const [activeChat, setActiveChat] = useState(null);
   const [provisioned, setProvisioned] = useState(false); // device set up (server URL saved)
   const [forceSetup, setForceSetup] = useState(false);   // show Odoo device-setup over the app login
 
-  const [isClient, setIsClient] = useState(false);     // client-only user → no Action Board
-
   const pushTokenRef = useRef(null);       // this device's Expo token (for logout unregister)
-  const pendingTapRef = useRef(null);      // kpi_id from a tap that arrived before login/restore
-  const pendingReportRef = useRef(null);   // report_id from a "daily report ready" tap before login
-  const pendingInvoiceRef = useRef(null);  // invoice_id from an invoice notification tap before login
-  const devLockedRef = useRef(false);      // latest devLocked for listeners/back-handler
-  useEffect(() => { devLockedRef.current = devLocked; }, [devLocked]);
-  // routeToTask is called from notification listeners registered once at mount,
-  // so it must read the LATEST role through a ref — a captured state value would
-  // be stale and send clients back to the Action Board.
-  const isClientRef = useRef(false);
-  useEffect(() => { isClientRef.current = isClient; }, [isClient]);
-
-  // Route a notification tap to the task (opens + pulses it).
-  //
-  // Role decides WHERE. The KPI Action Board is the developer/admin work screen —
-  // /kra_kpi/tasks/get returns nothing for a client, so sending them there landed
-  // them on an empty board that then couldn't even fetch the task. A client's
-  // tasks live in My Requests, so every client notification opens that instead.
-  // If we aren't logged in yet (cold-start tap), queue it until the session
-  // restore / login completes.
-  const routeToTask = (kpiId) => {
-    if (!kpiId) return;
-    if (userRef.current) {
-      setFocusTaskId(kpiId);
-      setAppScreen(isClientRef.current ? 'mytasks' : 'actionboard');
-    } else {
-      pendingTapRef.current = kpiId;
-    }
-  };
-
-  // Route a "daily report ready" notification tap to the Daily Reports screen,
-  // auto-opening that report. Admin-only (the Home tile + server both gate it).
-  // Same cold-start queueing as routeToTask — clear the other focus slots so a
-  // stale id can't make an unrelated row flash on the next visit.
-  const routeToReport = (reportId) => {
-    if (!reportId) return;
-    if (userRef.current) {
-      setFocusReportId(reportId);
-      setFocusTaskId(null);
-      setFocusSnapshotId(null);
-      setAppScreen('dailyreports');
-    } else {
-      pendingReportRef.current = reportId;
-    }
-  };
-
-  // Route an invoice notification tap to the invoice. A client lands on their
-  // read-only "My Invoices"; an admin on the full Client Invoices screen. Same
-  // cold-start queueing; clear the other focus slots so no stale row flashes.
-  const routeToInvoice = (invoiceId) => {
-    if (!invoiceId) return;
-    if (userRef.current) {
-      setFocusInvoiceId(invoiceId);
-      setFocusTaskId(null);
-      setFocusSnapshotId(null);
-      setFocusReportId(null);
-      setAppScreen(isClientRef.current ? 'myinvoices' : 'clientinvoices');
-    } else {
-      pendingInvoiceRef.current = invoiceId;
-    }
-  };
+  const pendingTapRef = useRef(null);      // a tap that arrived before login/restore
 
   // Keep a ref to `user` so listeners (registered once) see the latest value.
   const userRef = useRef(user);
   useEffect(() => { userRef.current = user; }, [user]);
+
+  // Route a notification tap to a screen, focusing the record it names.
+  //
+  // A cold-start tap can land before the session is restored, so it queues in a
+  // ref and flushes once `user` exists. When chat lands, this is the seam: read
+  // `data.chat_id` and route to the thread screen alongside whatever else ships.
+  const routeToNotification = (data) => {
+    if (!data) return;
+    const dest = 'notifications';
+    const id = data.id ?? null;
+    if (userRef.current) {
+      setFocusId(id);
+      setAppScreen(dest);
+    } else {
+      pendingTapRef.current = data;
+    }
+  };
 
   // A task alarm (notifee) carries data.alarm==='1' + kpi_id + task_name and the
   // notification id. Show the full-screen ringing screen so the user can Stop it.
   const routeToAlarm = (notif) => {
     const data = notif?.data || {};
     if (String(data.alarm) !== '1') return;
-    log.info('alarm → full-screen', { notifId: notif?.id, kpiId: data.kpi_id });
+    log.info('alarm → full-screen', { notifId: notif?.id });
     // `reason` = the optional note typed when setting the reminder (shown on the
     // alarm screen; blank → plain screen).
     setAlarmData({ task: { id: data.kpi_id, name: data.task_name || '' }, reason: data.reason || '', notifId: notif?.id });
   };
 
-  // STOP: cancel the notification (stops the loop), clear the stored reminder so
-  // the card bell resets, and open the task (if logged in). Then drop the takeover.
+  // STOP: cancel the notification (stops the loop) and clear the stored reminder
+  // so the card bell resets. Then drop the takeover.
   const stopAlarmAndClose = async () => {
     const a = alarmData;
     log.info('alarm: stop pressed', { notifId: a?.notifId, taskId: a?.task?.id });
@@ -213,12 +168,11 @@ function AppInner() {
     if (a?.notifId) await stopAlarm(a.notifId);
     if (a?.task?.id) {
       try { await session.removeReminder(a.task.id); } catch (_) {}
-      if (userRef.current) routeToTask(a.task.id);
     }
   };
 
-  // SNOOZE: stop the current ring and re-schedule the same alarm 5 minutes out,
-  // updating the stored reminder so the card bell shows the new time.
+  // SNOOZE: stop the current ring and re-schedule the same alarm, updating the
+  // stored reminder so the card bell shows the new time.
   const snoozeAlarm = async () => {
     const a = alarmData;
     log.info('alarm: snooze pressed', { notifId: a?.notifId, taskId: a?.task?.id });
@@ -256,20 +210,29 @@ function AppInner() {
   // Returning true from the handler tells Android we handled the event.
   useEffect(() => {
     const onBack = () => {
-      // (The old rule swallowed back for an unpaired developer to trap them on
-      // the PIN screen. The PIN now gates only task ACTIONS, so back behaves
-      // normally — the PIN screen is a place they chose to visit, not a cage.)
-      // Everyone else: a non-home screen goes back to Home.
-      if (user && appScreen !== 'home') { setAppScreen('home'); return true; }
+      // The chat screens are a stack, so hardware back must walk it rather than
+      // jumping to the root — otherwise leaving a thread exits the whole chat area.
+      if (user && appScreen === 'groupmanage') { setAppScreen('chatinfo'); return true; }
+      if (user && appScreen === 'chatinfo') { setAppScreen('chat'); return true; }
+      if (user && ['chatsearch', 'chatmedia', 'starred'].includes(appScreen)) {
+        setAppScreen(activeChat ? 'chat' : 'chats'); return true;
+      }
+      if (user && appScreen === 'chatsettings') { setAppScreen('chats'); return true; }
+      if (user && appScreen === 'chat') { setActiveChat(null); setAppScreen('chats'); return true; }
+      if (user && appScreen === 'newchat') { setAppScreen('chats'); return true; }
+      // Everything else (notifications, admin screens) returns to the chat list,
+      // which is now the root. Falling through on 'chats' itself is what lets
+      // Android close the app — returning true there would trap the user.
+      if (user && appScreen !== 'chats') { setAppScreen('chats'); return true; }
       // Odoo sheet open → close it, revealing the welcome ("Tap to Enter") screen.
       if (!user && screen === 'connect') { setScreen('login'); return true; }
       // On the welcome screen during admin setup → back to the mobile login page.
       if (!user && forceSetup) { setForceSetup(false); return true; }
-      return false; // at home / login — let the OS handle it (exit)
+      return false; // at the chat list / login — let the OS handle it (exit)
     };
     const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
     return () => sub.remove();
-  }, [user, appScreen, screen, devLocked, devPaired, forceSetup]);
+  }, [user, appScreen, screen, forceSetup, activeChat]);
 
   // Register this device for push once logged in (needs the session cookie so
   // the token binds to the right user server-side).
@@ -281,177 +244,29 @@ function AppInner() {
     })();
   }, [user?.uid]);
 
-  // Flush a queued cold-start tap only ONCE THE ROLE IS KNOWN (`gateReady`):
-  // routeToTask picks the destination by role, and the gate resolves async —
-  // flushing on login alone would still read isClient=false and send a client
-  // to the empty Action Board, which is the bug this routing exists to fix.
+  // Flush a queued cold-start tap once the session exists.
   useEffect(() => {
-    if (!user || !gateReady) return;
-    if (pendingReportRef.current) {
-      const reportId = pendingReportRef.current;
-      pendingReportRef.current = null;
-      log.info('cold-start tap flushed → report', { reportId });
-      routeToReport(reportId);
-      return;
-    }
-    if (pendingInvoiceRef.current) {
-      const invoiceId = pendingInvoiceRef.current;
-      pendingInvoiceRef.current = null;
-      log.info('cold-start tap flushed → invoice', { invoiceId });
-      routeToInvoice(invoiceId);
-      return;
-    }
-    if (!pendingTapRef.current) return;
-    const kpiId = pendingTapRef.current;
+    if (!user || !pendingTapRef.current) return;
+    const data = pendingTapRef.current;
     pendingTapRef.current = null;
-    log.info('cold-start tap flushed', { kpiId, isClient });
-    routeToTask(kpiId);
-  }, [user?.uid, gateReady, isClient]);
-
-  // Role gate: a DEVELOPER ("User" in KRA/KPI terms) must pair via the PIN screen
-  // before they can WORK. They still get the whole app read-only — Home, the bell,
-  // Profile, and the board to look at — because pairing proves they're at their
-  // computer to work, and reading isn't work. Admins/clients are never gated.
-  useEffect(() => {
-    if (!user) return;
-    let alive = true;
-    setGateReady(false);   // role unknown until /kpi_user/info resolves → show a loader, never Home
-    (async () => {
-      // Seed from the last known server answer so there's no unlocked flash while
-      // the request is in flight (same trick as WORKDAY_CACHE on the board).
-      const cached = await getRoleState(user?.uid);
-      if (alive && cached) {
-        setIsClient(cached.kpiRole === 'client');
-        setDevLocked(cached.kpiRole === 'developer');
-        setDevPaired(!!cached.paired);
-      }
-      try {
-        const { serverUrl } = await getConnection();
-        if (!serverUrl) { if (alive) { setDevLocked(false); } return; } // offline demo → Home
-        const info = await jsonRpc(serverUrl, '/kpi_user/info', {});
-        const isAdmin = !!(info && (info.is_system || info.is_owner || info.is_admin));
-        const isDev = !!(info && info.is_developer);
-        if (!alive) return;
-        // The KRA/KPI role ONLY (kpi_role: admin|client|developer) — the value
-        // Login Management's dropdown sets and Profile shows
-        // (res.users._compute_kpi_role). NOT the Odoo groups: those disagree, e.g.
-        // a client who is also in the developer group would be wrongly PIN-locked.
-        // Falls back to the flags if the server predates kpi_role on this route.
-        const kpiRole = (info && info.kpi_role) || '';
-        const lock = kpiRole ? kpiRole === 'developer' : (isDev && !isAdmin);
-        setIsClient(kpiRole ? kpiRole === 'client' : !!(info && info.is_client_only));
-        setDevLocked(lock);
-        let paired = true;   // non-developers are never gated
-        let pmode = 'start';
-        let ddone = false;
-        if (lock) {
-          try {
-            const st = await pairingStatus();
-            paired = !!st?.paired;
-            pmode = st?.mode || 'start';
-            ddone = !!st?.dayDone;
-          } catch (_) { paired = false; }
-        }
-        if (!alive) return;
-        setDevPaired(paired);
-        setPairMode(pmode);
-        setDayDone(ddone);
-        // Started-then-closed: the workday is still OPEN but the web tab was closed,
-        // so the device un-paired with mode='resume'. Land straight on the PIN screen
-        // to re-pair and continue. mode='start' (never started / already ended) stays
-        // read-only — no forced PIN. Ended-for-today (day_done) also stays read-only:
-        // no restart until tomorrow, so never force the PIN there.
-        if (lock && !paired && pmode === 'resume' && !ddone) {
-          setAppScreen((s) => (s === 'startworking' ? s : 'startworking'));
-        }
-        log.info('role gate', { kpi_role: kpiRole, lock, paired, mode: pmode, day_done: ddone, isAdmin, isDev });
-        saveRoleState(user?.uid, { kpiRole, paired });   // for the offline path below
-      } catch (e) {
-        // Offline / server unreachable. Reuse the last known answer rather than
-        // guessing "unlocked" — otherwise a developer who ended their workday
-        // gets a fully-unlocked board with no signal, and every button fails.
-        // Only fall open when we've genuinely never resolved a role.
-        log.warn('role gate check failed, using cached role', e?.message);
-        if (alive && !cached) setDevLocked(false);
-      } finally {
-        if (alive) setGateReady(true);   // role known → safe to render
-      }
-    })();
-    return () => { alive = false; };
+    log.info('cold-start tap flushed', data);
+    routeToNotification(data);
   }, [user?.uid]);
 
-  // Poll pairing for a developer: pairing on the web lifts read-only here, and
-  // being un-paired (End Workday / auto-away / midnight close) drops back into it.
-  useEffect(() => {
-    if (!user || !devLocked) return;
-    const id = setInterval(async () => {
-      try {
-        const st = await pairingStatus();
-        setPairMode(st?.mode || 'start');
-        setDayDone(!!st?.dayDone);
-        setDevPaired((prev) => {
-          const now = !!st?.paired;
-          if (now !== prev) {
-            // Keep the offline cache honest — this is the other place the paired
-            // state changes, and a stale cache would show the wrong mode offline.
-            saveRoleState(user?.uid, { kpiRole: 'developer', paired: now });
-            // Only navigate if they're SITTING on the PIN screen waiting: send
-            // them to the board they wanted. Never yank someone off Home or a
-            // screen they're reading just because pairing landed.
-            if (now) setAppScreen((s) => (s === 'startworking' ? 'actionboard' : s));
-          }
-          return now;
-        });
-      } catch (_) { /* keep polling */ }
-    }, 5000);
-    return () => clearInterval(id);
-  }, [user?.uid, devLocked]);
-
-  // On app FOREGROUND (open / resume): just REFRESH the pairing state — do NOT
-  // force-navigate to the PIN screen. A developer who un-paired while the workday
-  // is still open (web tab closed / away) drops to a READ-ONLY board that now
-  // shows a "Continue Workday" button (utils/workdayState.js); they tap it when
-  // ready. This used to hard-redirect to the PIN screen on every resume, which
-  // yanked people there just for switching apps and back — the source of the
-  // intermittent "it keeps sending me to the PIN screen". The startup role gate
-  // still lands an already-open-but-unpaired developer on the PIN screen; only
-  // this mid-session resume no longer does.
-  useEffect(() => {
-    if (!user || !devLocked) return;
-    const sub = AppState.addEventListener('change', async (state) => {
-      if (state !== 'active') return;
-      try {
-        const st = await pairingStatus();
-        setDevPaired(!!st?.paired);
-        setPairMode(st?.mode || 'start');
-        setDayDone(!!st?.dayDone);
-        saveRoleState(user?.uid, { kpiRole: 'developer', paired: !!st?.paired });
-      } catch (_) { /* offline → keep current mode */ }
-    });
-    return () => sub.remove();
-  }, [user?.uid, devLocked]);
-
-  // Notification tap → open the task on the board. Registered once; reads the
+  // Notification tap → open the screen it points at. Registered once; reads the
   // latest user via userRef. Also handles a cold-start tap (app launched from
   // a killed state by tapping the banner).
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener((resp) => {
       const data = resp?.notification?.request?.content?.data || {};
-      log.info('notification tapped', { kpiId: data.kpi_id, reportId: data.report_id, invoiceId: data.invoice_id });
-      // Invoice / daily-report pushes carry an anchor kpi_id too — the specific
-      // tap-target (invoice_id / report_id) wins so it opens the right screen,
-      // not the unrelated anchor task.
-      if (data.invoice_id) routeToInvoice(data.invoice_id);
-      else if (data.report_id) routeToReport(data.report_id);
-      else routeToTask(data.kpi_id);
+      log.info('notification tapped', data);
+      routeToNotification(data);
     });
     (async () => {
       try {
         const last = await Notifications.getLastNotificationResponseAsync();
-        const data = last?.notification?.request?.content?.data || {};
-        if (data.invoice_id) { log.info('cold-start tap → invoice', { invoiceId: data.invoice_id }); routeToInvoice(data.invoice_id); }
-        else if (data.report_id) { log.info('cold-start tap → report', { reportId: data.report_id }); routeToReport(data.report_id); }
-        else if (data.kpi_id) { log.info('cold-start notification tap', { kpiId: data.kpi_id }); routeToTask(data.kpi_id); }
+        const data = last?.notification?.request?.content?.data;
+        if (data) { log.info('cold-start notification tap', data); routeToNotification(data); }
       } catch (_) {}
     })();
     return () => sub.remove();
@@ -503,221 +318,134 @@ function AppInner() {
   const logout = async () => {
     // Best-effort: stop this device receiving the previous user's banners.
     if (pushTokenRef.current) { unregisterPush(pushTokenRef.current); pushTokenRef.current = null; }
+    // Stop the chat polling loops before the session goes — otherwise they keep
+    // firing requests that now 401 and log noise all the way to the login screen.
+    realtime.stop();
     await session.clearSession();
     setUser(null);
     setScreen('login');
-    setAppScreen('home');
-    setFocusTaskId(null);
-    setFocusReportId(null);
-    setFocusInvoiceId(null);
-    setDevLocked(false);
-    setDevPaired(false);
-    setPairMode('start');
-    setDayDone(false);
-    setGateReady(false);
-  };
-
-  // Confirm before logging out. A mis-tap on the log-out icon shouldn't end the
-  // session — and, per the one-start-one-end-per-day rule, logging out then back
-  // in must not become a backdoor to a second workday, so we warn about that too.
-  // Non-developers (never locked) get a plain confirm without the workday line.
-  const confirmLogout = () => {
-    const warn = devLocked
-      ? "You'll be signed out. If you've ended your workday, logging back in won't let you start another one today."
-      : "You'll be signed out of the app.";
-    Alert.alert('Log out?', warn, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Log out', style: 'destructive', onPress: () => { logout(); } },
-    ]);
+    setAppScreen('chats');
+    setActiveChat(null);
+    setFocusId(null);
   };
 
   // Splash keeps showing until both the animation and the session read finish.
   if (!ready || restoring) return <SplashScreen onDone={() => setReady(true)} />;
 
   // A ringing task alarm takes over EVERYTHING (even before login) so Stop is
-  // always reachable to silence it. Wins over Home, the PIN gate, and login.
+  // always reachable to silence it. Wins over the chat list and login.
   if (alarmData) {
     return <AlarmScreen alarm={alarmData} onStop={stopAlarmAndClose} onSnooze={snoozeAlarm} />;
   }
 
   if (user) {
-    log.info('render post-login screen', { appScreen, devLocked, devPaired, gateReady });
-    // Returning home clears any pending task-focus so it can't re-pulse later.
-    const home = () => { setAppScreen('home'); setFocusTaskId(null); };
-    // open(dest, param): param is an optional payload (e.g. a task id to focus).
-    // `param` means different things per destination: a task id for the board /
-    // My Requests, a snapshot id for Workday Snapshots. Route it into the right
-    // slot — putting a snapshot id in focusTaskId would have the board hunting for
-    // a task that doesn't exist. Always clear the other, so a stale id can't make
-    // an unrelated row flash on the next visit.
+    log.info('render post-login screen', { appScreen });
+    // Back to the root (the chat list), clearing any pending focus so it can't
+    // re-flash later.
+    const home = () => { setAppScreen('chats'); setFocusId(null); };
+    // open(dest, param): param is an optional record id for the destination to
+    // focus and flash.
     const open = (dest, param) => {
       log.info('open', dest, param);
-      const isSnap = dest === 'snapshots';
-      const isReport = dest === 'dailyreports';
-      const isInvoice = dest === 'myinvoices' || dest === 'clientinvoices';
-      setFocusSnapshotId(isSnap ? (param ?? null) : null);
-      setFocusReportId(isReport ? (param ?? null) : null);
-      setFocusInvoiceId(isInvoice ? (param ?? null) : null);
-      setFocusTaskId(isSnap || isReport || isInvoice ? null : (param ?? null));
+      setFocusId(param ?? null);
       setAppScreen(dest);
     };
 
-    // A developer ("User") who hasn't paired → the workday hasn't started, so
-    // task ACTIONS are off everywhere (read-only). Everything else works.
-    const workdayLocked = devLocked && !devPaired;
-
-    // End Workday un-pairs the device server-side (action_end_day → _unpair), so
-    // flip to read-only immediately rather than leaving live action buttons on
-    // screen until the 5s pairing poll catches up. Cache it too, so the mode is
-    // still right if they go offline before the next successful request.
-    const onWorkdayEnded = () => {
-      if (!devLocked) return;              // admins/clients are never locked
-      log.info('workday ended → read-only');
-      setDevPaired(false);
-      saveRoleState(user?.uid, { kpiRole: 'developer', paired: false });
-    };
-
-    // Until the role gate resolves, render a neutral loader — NEVER Home. This
-    // stops a developer from seeing a flash of Home before the PIN gate loads.
-    if (!gateReady) {
-      return (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#EEF2FB' }}>
-          <ActivityIndicator size="large" color="#1E6FD9" />
-        </View>
-      );
-    }
-
-    // The PIN gates WORK, not the app. An unpaired developer still gets Home,
-    // the bell, Profile and a READ-ONLY board — pairing proves they're at their
-    // computer to work, and reading isn't work. (It used to gate everything,
-    // which meant the midnight auto-close un-paired them and then hid the very
-    // notification telling them why.) `workdayLocked` below drives the read-only
-    // UI; this route is just the PIN screen itself.
-    // Every post-login screen is rendered through renderScreen() so ScreenTransition
-    // can play the same open animation for all of them — every option, every role.
+    // Every post-login screen renders through renderScreen() so ScreenTransition
+    // plays the same open animation for all of them.
     const renderScreen = () => {
-    if (appScreen === 'startworking') {
+      if (appScreen === 'chat' && activeChat)
+        return (
+          <ChatThreadScreen
+            conversation={activeChat}
+            // Back goes to the list, not Home — the list is where they came from.
+            onBack={() => { setActiveChat(null); setAppScreen('chats'); }}
+            onOpenInfo={() => setAppScreen('chatinfo')}
+            onOpenSearch={() => setAppScreen('chatsearch')}
+            onOpenMedia={() => setAppScreen('chatmedia')}
+            onOpenStarred={() => setAppScreen('starred')}
+          />
+        );
+      if (appScreen === 'chatinfo' && activeChat)
+        return (
+          <ContactInfoScreen
+            conversation={activeChat}
+            onBack={() => setAppScreen('chat')}
+            onManageGroup={() => setAppScreen('groupmanage')}
+            // Messaging a group member switches the open thread to that 1:1.
+            onOpenChat={(conv) => { setActiveChat(conv); setAppScreen('chat'); }}
+            // Left/deleted → the thread is gone, so return to the list.
+            onLeft={() => { setActiveChat(null); setAppScreen('chats'); }}
+          />
+        );
+      if (appScreen === 'groupmanage' && activeChat)
+        return (
+          <GroupManageScreen
+            conversation={activeChat}
+            onBack={() => setAppScreen('chatinfo')}
+            // Renaming/adding changes the header the thread shows, so refresh it.
+            onChanged={() => setActiveChat((c) => ({ ...c }))}
+          />
+        );
+      if (appScreen === 'chatsearch')
+        return (
+          <ChatSearchScreen
+            // activeChat set → scoped to that thread; null → global search.
+            conversation={activeChat}
+            onBack={() => setAppScreen(activeChat ? 'chat' : 'chats')}
+            onJump={() => setAppScreen('chat')}
+            onOpenChat={() => setAppScreen('chats')}
+          />
+        );
+      if (appScreen === 'chatmedia')
+        return <ChatMediaScreen conversation={activeChat} onBack={() => setAppScreen(activeChat ? 'chat' : 'chats')} />;
+      if (appScreen === 'starred')
+        return <StarredScreen onBack={() => setAppScreen(activeChat ? 'chat' : 'chats')} onOpenChat={() => setAppScreen('chats')} />;
+      if (appScreen === 'chatsettings')
+        return (
+          <ChatSettingsScreen
+            user={user}
+            onBack={() => setAppScreen('chats')}
+            onLogout={logout}
+          />
+        );
+      if (appScreen === 'newchat')
+        return (
+          <NewChatScreen
+            onBack={() => setAppScreen('chats')}
+            // openDirect/createGroup both return a conversation, so go straight in.
+            onOpenChat={(conv) => { setActiveChat(conv); setAppScreen('chat'); }}
+          />
+        );
+      if (appScreen === 'notifications')
+        return <NotificationsScreen onBack={home} onOpen={open} />;
+      if (appScreen === 'config')
+        return <ConfigurationScreen onBack={home} />;
+      if (appScreen === 'loginmgmt')
+        return <LoginManagementScreen onBack={home} />;
+      if (appScreen === 'users')
+        return <UsersScreen onBack={home} />;
+      if (appScreen === 'companybranding')
+        return <CompanyBranding onBack={home} />;
+      if (appScreen === 'usermanual')
+        return <UserManual onBack={home} />;
+      // Fallthrough IS the root. Any unmatched route — including 'chat' and
+      // friends when activeChat is somehow null — lands on the chat list rather
+      // than a blank screen.
       return (
-        <StartWorkingScreen
-          // Backing out returns to the board they were heading for (read-only),
-          // not Home — a mis-tap shouldn't cost them their place.
-          onBack={() => setAppScreen('actionboard')}
-          onLogout={confirmLogout}
-          // Nothing starts until the PIN is verified: /kpi_pair/verify is what
-          // opens the workday, so walking away from here starts nothing.
-          onPaired={() => { setDevPaired(true); setDayDone(false); setAppScreen('actionboard'); }}
+        <ChatListScreen
+          onBack={home}
+          onNewChat={() => setAppScreen('newchat')}
+          onOpenChat={(conv) => { setActiveChat(conv); setAppScreen('chat'); }}
+          onOpenSearch={() => { setActiveChat(null); setAppScreen('chatsearch'); }}
+          onOpenStarred={() => setAppScreen('starred')}
+          onOpenSettings={() => setAppScreen('chatsettings')}
+          onOpenNotifications={() => setAppScreen('notifications')}
+          onOpenAdmin={(dest) => setAppScreen(dest)}
+          onLogout={logout}
         />
       );
-    }
-
-    if (appScreen === 'dashboard')
-      return <KraKpiDashboard onBack={home} />;
-    if (appScreen === 'actionboard')
-      // Back always returns to Home (the developer is paired once they can reach
-      // the board; the PIN screen is only the pre-pair gate).
-      return (
-        <KpiActionBoard
-          onBack={home} focusTaskId={focusTaskId} onFocusHandled={() => setFocusTaskId(null)}
-          workdayLocked={workdayLocked} onNeedPair={() => setAppScreen('startworking')}
-          onWorkdayEnded={onWorkdayEnded}
-        />
-      );
-    if (appScreen === 'owner')
-      return <OwnerDashboard onBack={home} />;
-    if (appScreen === 'livetracking')
-      // Admin: live "who's doing what now" + attendance. Route is admin-gated server-side.
-      return <LiveTracking onBack={home} />;
-    if (appScreen === 'notifications')
-      // isClient → a tapped notification opens My Requests, not the Action Board.
-      // workdayLocked → READ MODE ONLY: rows still mark themselves read, but a null
-      // onOpen means tapping never navigates to the task (onRowPress guards on it).
-      return (
-        <NotificationsScreen
-          onBack={home} isClient={isClient}
-          onOpen={workdayLocked ? null : open}
-        />
-      );
-    if (appScreen === 'config')
-      return <ConfigurationScreen onBack={home} />;
-    if (appScreen === 'loginmgmt')
-      return <LoginManagementScreen onBack={home} />;
-    if (appScreen === 'users')
-      // Admin: create/edit users with a KRA/KPI role only. Route is admin-gated server-side.
-      return <UsersScreen onBack={home} />;
-    if (appScreen === 'snapshots')
-      // focusSnapshotId: set when an admin taps the "ended their workday"
-      // notification → that day + developer auto-expand and the image flashes.
-      return <WorkdaySnapshots onBack={home} focusSnapshotId={focusSnapshotId} />;
-    if (appScreen === 'mysnapshots')
-      // Self-scoped: every user sees ONLY their own workday snapshot images
-      // (server route is hard-scoped to request.env.user).
-      return <WorkdaySnapshots onBack={home} mine />;
-    if (appScreen === 'dailyreports')
-      // focusReportId: set when an admin taps a "Daily report ready" notification
-      // → the Daily Reports screen opens that report's PDF.
-      return <DailyReports onBack={home} focusReportId={focusReportId} />;
-    if (appScreen === 'companybranding')
-      return <CompanyBranding onBack={home} />;
-    if (appScreen === 'workreport')
-      return <WorkReport onBack={home} />;
-    if (appScreen === 'clientinvoices')
-      return <ClientInvoices onBack={home} focusInvoiceId={focusInvoiceId} onFocusHandled={() => setFocusInvoiceId(null)} />;
-    if (appScreen === 'myinvoices')
-      // Client-facing read-only invoices (server record rule scopes to their own finalized/sent).
-      return <ClientInvoices onBack={home} portal focusInvoiceId={focusInvoiceId} onFocusHandled={() => setFocusInvoiceId(null)} />;
-    if (appScreen === 'myworkday')
-      // Every user's OWN daily workday report (self-scoped server-side).
-      return <MyWorkday onBack={home} />;
-    if (appScreen === 'mytasks')
-      // focusTaskId: set when a client taps a notification → the row scrolls into
-      // view and flashes, mirroring the board's behaviour for developers.
-      return <ClientTasks onBack={home} focusTaskId={focusTaskId} />;
-    if (appScreen === 'clientfiles')
-      return <GenerateClientFiles onBack={home} />;
-    if (appScreen === 'reassignhistory')
-      return <ReassignmentHistory onBack={home} />;
-    if (appScreen === 'taskqueue')
-      return <ClientTaskQueue onBack={home} />;
-    if (appScreen === 'usermanual')
-      // Every role: role-tagged PDF manuals (server-filtered). The screen
-      // self-gates admin add/edit/delete via app_bundle.can_edit.
-      return <UserManual onBack={home} />;
-    // (A second `appScreen === 'startworking'` branch used to sit here. It was
-    // unreachable — the live one above returns first — and still carried the
-    // retired "locked developer: no back button" rule, contradicting it.)
-    // Upload screens share one component, differing only by docType.
-    if (appScreen.startsWith('upload:'))
-      return <UploadAmendments onBack={home} docType={appScreen.split(':')[1]} />;
-    // Status shortcut (from Home stat cards) → the Action Board focused on one
-    // status: list view auto-expands that heading; board view scrolls to its lane.
-    if (appScreen.startsWith('status:'))
-      return (
-        <KpiActionBoard
-          onBack={home} focusStatus={appScreen.split(':')[1]}
-          workdayLocked={workdayLocked} onNeedPair={() => setAppScreen('startworking')}
-          onWorkdayEnded={onWorkdayEnded}
-        />
-      );
-    return (
-      <HomeScreen
-        user={user}
-        // Home & Profile have their OWN logout confirmation modals (which now
-        // carry the one-per-day warning), so pass the raw logout — wrapping it in
-        // confirmLogout's Alert too would double-confirm. StartWorkingScreen has
-        // no modal, so it gets confirmLogout.
-        onLogout={logout}
-        onOpen={open}
-        // Drives the red "read-only" line under the name + its Start/Continue/
-        // Ended button. False for admins/clients — they're never locked.
-        workdayLocked={workdayLocked}
-        // workdayOpen: the session is still open (unpaired via tab-close/away) →
-        // the bar says "Continue Workday". dayDone: ended today → "ended" state.
-        workdayOpen={pairMode === 'resume'}
-        dayDone={dayDone}
-        onNeedPair={() => setAppScreen('startworking')}
-      />
-    );
-    };  // end renderScreen
+    };
 
     // key by appScreen so each navigation replays the enter animation.
     return (
@@ -727,10 +455,11 @@ function AppInner() {
     );
   }
 
-  // Not logged in. Once the device is set up (server URL saved), the PRIMARY
-  // login is mobile# + password. The Odoo device-setup login stays reachable
-  // via "Admin / device setup" (and on a fresh install) so no one is locked out.
-  if (provisioned && !forceSetup) {
+  // Not logged in. With the number login ON, a provisioned device goes straight
+  // to the mobile# + password page, and the Odoo login stays reachable behind
+  // "Admin / device setup" so no one is locked out. With it OFF this branch is
+  // skipped entirely and everyone lands on the welcome + Odoo sheet below.
+  if (NUMBER_LOGIN_ENABLED && provisioned && !forceSetup) {
     return (
       <AppLoginScreen
         onLogin={(u) => { setForceSetup(false); setUser(u); }}
@@ -739,15 +468,27 @@ function AppInner() {
     );
   }
 
-  // Fresh install / forced setup: welcome + the Connect (URL/DB/Odoo login) sheet.
-  // A successful connect only PROVISIONS the device (saves the server/DB); it does
-  // NOT log a user in. The app then shows the mobile-number (non-Odoo) login page.
+  // Welcome + the Connect (URL/DB/Odoo login) sheet. ConnectScreen always saves
+  // the server/DB; whether that also signs you in depends on the flag.
+  const onConnected = async (profile) => {
+    setProvisioned(true);
+    setForceSetup(false);
+    setScreen('login');
+    // Number login off → the Odoo account that just authenticated IS the user.
+    // Persist it so a relaunch restores the session instead of asking again.
+    if (!NUMBER_LOGIN_ENABLED && profile) {
+      log.info('odoo login → session', { uid: profile.uid, login: profile.username });
+      try { await session.saveSession(profile); } catch (e) { log.warn('saveSession failed', e?.message); }
+      setUser(profile);
+    }
+  };
+
   return (
     <>
       <LoginScreen goConnect={() => setScreen('connect')} />
       <ConnectScreen
         visible={screen === 'connect'}
-        onLogin={() => { setProvisioned(true); setForceSetup(false); setScreen('login'); }}
+        onLogin={onConnected}
         goBack={() => setScreen('login')}
       />
     </>

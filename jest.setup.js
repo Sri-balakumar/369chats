@@ -21,6 +21,43 @@ jest.mock('@expo/vector-icons', () => {
   };
 });
 
+// AsyncStorage ships its own jest mock; without it every module that touches
+// api/session throws "NativeModule: AsyncStorage is null" at import time.
+jest.mock(
+  '@react-native-async-storage/async-storage',
+  () => require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
+);
+
+// Native modules with no JS implementation off-device. These are mocked so the
+// import smoke test can actually load the screens that use them — without this
+// the test can't tell "missing import" from "native module absent under jest".
+jest.mock('expo-audio', () => ({
+  useAudioRecorder: () => ({
+    record: jest.fn(), pause: jest.fn(), stop: jest.fn(),
+    prepareToRecordAsync: jest.fn(), isRecording: false, uri: null,
+  }),
+  useAudioRecorderState: () => ({ isRecording: false, durationMillis: 0, metering: -60, url: null }),
+  useAudioPlayer: () => ({ play: jest.fn(), pause: jest.fn(), seekTo: jest.fn(() => Promise.resolve()) }),
+  useAudioPlayerStatus: () => ({ playing: false, currentTime: 0, duration: 0, isLoaded: false }),
+  RecordingPresets: { HIGH_QUALITY: {}, LOW_QUALITY: {} },
+  requestRecordingPermissionsAsync: jest.fn(() => Promise.resolve({ granted: true })),
+  setAudioModeAsync: jest.fn(() => Promise.resolve()),
+}));
+
+jest.mock('expo-media-library', () => ({
+  MediaType: { photo: 'photo', video: 'video' },
+  SortBy: { creationTime: 'creationTime' },
+  requestPermissionsAsync: jest.fn(() => Promise.resolve({ granted: true })),
+  getAssetsAsync: jest.fn(() => Promise.resolve({ assets: [], endCursor: null, hasNextPage: false })),
+  getAssetInfoAsync: jest.fn((a) => Promise.resolve({ ...a, localUri: a?.uri })),
+}));
+
+jest.mock('expo-intent-launcher', () => ({ startActivityAsync: jest.fn(() => Promise.resolve()) }));
+jest.mock('expo-sharing', () => ({
+  isAvailableAsync: jest.fn(() => Promise.resolve(true)),
+  shareAsync: jest.fn(() => Promise.resolve()),
+}));
+
 // SVG primitives → inert views, so components that draw art don't need native SVG.
 jest.mock('react-native-svg', () => {
   const React = require('react');

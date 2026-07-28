@@ -11,6 +11,20 @@ import { registry } from "@web/core/registry";
 import { rpc } from "@web/core/network/rpc";
 import { useService } from "@web/core/utils/hooks";
 
+// Media review tray — send quality and crop presets.
+// Standard matches what the tray has always produced; HD keeps far more detail
+// at the cost of a much bigger base64 body (the server caps images at 10 MB).
+const MR_QUALITY = {
+    standard: { maxSide: 1280, quality: 0.7 },
+    hd: { maxSide: 2560, quality: 0.92 },
+};
+const MR_CROPS = [
+    { key: 'original', label: 'Original', ratio: null },
+    { key: 'square', label: '1:1', ratio: 1 },
+    { key: 'portrait', label: '4:5', ratio: 4 / 5 },
+    { key: 'wide', label: '16:9', ratio: 16 / 9 },
+];
+
 export class Chat369App extends Component {
 
     static template = xml/* xml */`
@@ -1123,6 +1137,23 @@ export class Chat369App extends Component {
                 <div class="o369-vstage">
                     <img t-if="mrCur() and mrCur().kind === 'image'" t-att-src="mrCur().previewUrl"/>
                     <video t-elif="mrCur()" t-att-src="mrCur().previewUrl" controls="controls"/>
+                    <div class="o369-mrbusy" t-if="state.mediaReview.busy"><i class="fa fa-spinner fa-spin"/></div>
+                </div>
+                <!-- Edit tools. Images only: neither crop nor re-encode applies to video. -->
+                <div class="o369-mrtools" t-if="mrCur() and mrCur().kind === 'image'">
+                    <span class="o369-mrtoollbl"><i class="fa fa-crop"/> Crop</span>
+                    <button class="o369-mrchip" t-foreach="mrCrops()" t-as="c" t-key="c.key"
+                            t-att-class="{ 'o369-mrchip-on': mrCur().crop === c.key }"
+                            t-att-disabled="state.mediaReview.busy"
+                            t-on-click="() => this.setReviewCrop(c.key)"><t t-esc="c.label"/></button>
+                    <button class="o369-mrchip o369-mrhd" t-att-class="{ 'o369-mrchip-on': state.mediaReview.hd }"
+                            t-att-disabled="state.mediaReview.busy"
+                            t-on-click="toggleReviewHd" title="Send in higher quality">
+                        <i class="fa fa-magic"/> <t t-esc="mrQualityLabel()"/>
+                    </button>
+                    <button class="o369-mrchip o369-mrdel" t-on-click="removeReviewItem" title="Remove this one">
+                        <i class="fa fa-trash"/>
+                    </button>
                 </div>
                 <div class="o369-mrcapwrap">
                     <input class="o369-mrcap" placeholder="Add a caption…" t-att-value="mrCur() and mrCur().caption" t-on-input="(ev) => this.setReviewCaption(ev.target.value)"/>
@@ -2084,14 +2115,58 @@ export class Chat369App extends Component {
                 const b64 = await this._readB64(file);
                 items.push({ kind: 'video', b64, name: file.name, mime: file.type || 'video/mp4', caption: '', previewUrl: URL.createObjectURL(file) });
             } else {
-                const b64 = await this._compressImage(file, 1280, 0.7);
-                items.push({ kind: 'image', b64, name: this._renameImg(file.name), mime: 'image/jpeg', caption: '', previewUrl: 'data:image/jpeg;base64,' + b64 });
+                const b64 = await this._processImage(file, MR_QUALITY.standard.maxSide, MR_QUALITY.standard.quality, null);
+                // `file` is kept so crop / HD can re-derive from the ORIGINAL. Without it,
+                // switching to HD would upscale an already-compressed copy and re-cropping
+                // would crop a crop.
+                items.push({ kind: 'image', file, crop: 'original', b64, name: this._renameImg(file.name), mime: 'image/jpeg', caption: '', previewUrl: 'data:image/jpeg;base64,' + b64 });
             }
         }
-        if (items.length) this.state.mediaReview = { items, idx: 0, viewOnce: false };
+        if (items.length) this.state.mediaReview = { items, idx: 0, viewOnce: false, hd: false, busy: false };
     }
     mrCur() { const r = this.state.mediaReview; return r ? r.items[r.idx] : null; }
     setReviewCaption(v) { const c = this.mrCur(); if (c) c.caption = v; }
+    mrCrops() { return MR_CROPS; }
+    mrQualityLabel() { const r = this.state.mediaReview; return r && r.hd ? 'HD' : 'Standard'; }
+    // Re-derive ONE item at a new aspect ratio, at the tray's current quality.
+    async setReviewCrop(key) {
+        const r = this.state.mediaReview, it = this.mrCur();
+        if (!r || !it || it.kind !== 'image' || r.busy) return;
+        const preset = MR_CROPS.find((c) => c.key === key);
+        const q = r.hd ? MR_QUALITY.hd : MR_QUALITY.standard;
+        r.busy = true;
+        try {
+            it.b64 = await this._processImage(it.file, q.maxSide, q.quality, preset ? preset.ratio : null);
+            it.previewUrl = 'data:image/jpeg;base64,' + it.b64;
+            it.crop = key;
+        } catch (e) { this.notify('Could not crop that image'); }
+        r.busy = false;
+    }
+    // Quality is a SEND setting, not a per-photo edit — it applies to every image.
+    async toggleReviewHd() {
+        const r = this.state.mediaReview;
+        if (!r || r.busy) return;
+        r.busy = true;
+        r.hd = !r.hd;
+        const q = r.hd ? MR_QUALITY.hd : MR_QUALITY.standard;
+        try {
+            for (const it of r.items) {
+                if (it.kind !== 'image' || !it.file) continue;
+                const preset = MR_CROPS.find((c) => c.key === it.crop);
+                it.b64 = await this._processImage(it.file, q.maxSide, q.quality, preset ? preset.ratio : null);
+                it.previewUrl = 'data:image/jpeg;base64,' + it.b64;
+            }
+        } catch (e) { this.notify('Could not change quality'); }
+        r.busy = false;
+    }
+    removeReviewItem() {
+        const r = this.state.mediaReview; if (!r) return;
+        const it = r.items[r.idx];
+        if (it && it.kind === 'video' && it.previewUrl) { try { URL.revokeObjectURL(it.previewUrl); } catch (e) {} }
+        r.items.splice(r.idx, 1);
+        if (!r.items.length) { this.state.mediaReview = null; return; }
+        r.idx = Math.max(0, Math.min(r.idx, r.items.length - 1));
+    }
     closeMediaReview() {
         const r = this.state.mediaReview; this.state.mediaReview = null;
         if (r) r.items.forEach((it) => { if (it.kind === 'video' && it.previewUrl) { try { URL.revokeObjectURL(it.previewUrl); } catch (e) {} } });
@@ -2397,6 +2472,38 @@ export class Chat369App extends Component {
     fmtCallDur(s) { s = Math.max(0, Math.floor(s || 0)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
     fmtWhen(iso) { if (!iso) return ''; const d = new Date(iso); if (isNaN(d.getTime())) return ''; return d.toLocaleString([], { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); }
     _renameImg(name) { return (name || 'image').replace(/\.[^.]+$/, '') + '.jpg'; }
+    // Crop (optional, centred) + downscale + JPEG-recompress in one canvas pass.
+    // ratio null → keep the original aspect. Used by the media review tray for
+    // both the crop chips and the Standard/HD switch.
+    _processImage(file, maxSide, quality, ratio) {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const img = new Image();
+                img.onload = () => {
+                    // Source rectangle: the centred box matching `ratio`.
+                    let sx = 0, sy = 0, sw = img.width, sh = img.height;
+                    if (ratio) {
+                        const cur = sw / sh;
+                        if (ratio > cur) { const nh = Math.round(sw / ratio); sy = Math.round((sh - nh) / 2); sh = nh; }
+                        else { const nw = Math.round(sh * ratio); sx = Math.round((sw - nw) / 2); sw = nw; }
+                    }
+                    // Destination: the same box scaled down to fit maxSide.
+                    let w = sw, h = sh;
+                    if (w > maxSide || h > maxSide) {
+                        if (w >= h) { h = Math.round(h * maxSide / w); w = maxSide; }
+                        else { w = Math.round(w * maxSide / h); h = maxSide; }
+                    }
+                    const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
+                    canvas.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+                    resolve((canvas.toDataURL('image/jpeg', quality || 0.7).split(',')[1]) || '');
+                };
+                img.onerror = () => resolve(String(reader.result).split(',')[1] || '');
+                img.src = reader.result;
+            };
+            reader.readAsDataURL(file);
+        });
+    }
     // Downscale + JPEG-recompress an image in the browser to keep Odoo storage small.
     _compressImage(file, maxSide, quality) {
         return new Promise((resolve) => {

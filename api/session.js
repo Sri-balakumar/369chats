@@ -66,12 +66,7 @@ export async function clearSession() {
   } catch (_) {}
 }
 
-// --- Home Quick Actions customization (per user, this device) ---------------
-// Stores the list of chosen quick-action dest keys (e.g. ['actionboard','owner']).
-// Returns null when the user hasn't customized yet (caller then shows the default).
-
 const K_ROLE = 'kpi_role_state';
-const K_QUICK = 'home_quick_actions';
 
 // Last KNOWN role + pairing state, per uid. The role gate asks the server for
 // these; with no network that request throws and the gate would fall back to
@@ -95,70 +90,12 @@ export async function saveRoleState(uid, state) {
   } catch (_) { /* best-effort cache — never block the gate */ }
 }
 
-export async function getQuickActions(uid) {
-  try {
-    const raw = await AsyncStorage.getItem(`${K_QUICK}:${uid ?? 'me'}`);
-    const arr = raw ? JSON.parse(raw) : null;
-    return Array.isArray(arr) ? arr : null;
-  } catch (_) {
-    return null;
-  }
-}
-
-export async function saveQuickActions(uid, keys) {
-  try {
-    await AsyncStorage.setItem(`${K_QUICK}:${uid ?? 'me'}`, JSON.stringify(keys || []));
-  } catch (_) {}
-}
-
-// --- Side-menu order (drag-to-reorder in the drawer) ------------------------
-// The user's own ordering of the drawer items, as dest keys. null = never
-// reordered → the caller falls back to the natural role order. Stored per user
-// and per device, exactly like the quick actions above.
-
-const K_MENU = 'home_menu_order';
-
-export async function getMenuOrder(uid) {
-  try {
-    const raw = await AsyncStorage.getItem(`${K_MENU}:${uid ?? 'me'}`);
-    const arr = raw ? JSON.parse(raw) : null;
-    return Array.isArray(arr) ? arr : null;
-  } catch (_) {
-    return null;
-  }
-}
-
-export async function saveMenuOrder(uid, keys) {
-  try {
-    await AsyncStorage.setItem(`${K_MENU}:${uid ?? 'me'}`, JSON.stringify(keys || []));
-  } catch (_) {}
-}
-
-// --- Profile photo (local only, per user) -----------------------------------
-// Stored as a base64 data URI in AsyncStorage → lives only on this device and is
-// wiped on uninstall / clear-data. Returns null when none is set.
-
-const K_AVATAR = 'profile_avatar';
-
-export async function getAvatar(uid) {
-  try {
-    return (await AsyncStorage.getItem(`${K_AVATAR}:${uid ?? 'me'}`)) || null;
-  } catch (_) {
-    return null;
-  }
-}
-
-export async function saveAvatar(uid, dataUri) {
-  try {
-    await AsyncStorage.setItem(`${K_AVATAR}:${uid ?? 'me'}`, dataUri || '');
-  } catch (_) {}
-}
-
-export async function clearAvatar(uid) {
-  try {
-    await AsyncStorage.removeItem(`${K_AVATAR}:${uid ?? 'me'}`);
-  } catch (_) {}
-}
+// (Quick-actions, side-menu order and the local profile photo lived here. All
+// three belonged to the Home dashboard, which the chat app replaced with the
+// conversation list as its root — so their helpers and their AsyncStorage keys
+// went with it. The avatar in particular was device-local and therefore invisible
+// to the people you chat with; the profile photo is now server-side, set from
+// Chat settings via chat.saveProfile.)
 
 // ── Per-task reminder alarms ──────────────────────────────────────────────
 // One map { [taskId]: { notifId, whenIso } } so the board can read every card's

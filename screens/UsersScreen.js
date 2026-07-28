@@ -248,7 +248,7 @@ export default function UsersScreen({ onBack }) {
               <Text style={s.label}>Email</Text>
               <TextInput style={s.input} value={form.email} onChangeText={(t) => setForm((f) => ({ ...f, email: t }))} placeholder="email (optional)" placeholderTextColor={COLORS.faint} autoCapitalize="none" keyboardType="email-address" />
 
-              <Text style={s.label}>KRA / KPI Role</Text>
+              <Text style={s.label}>Role</Text>
               <View style={s.segment}>
                 {ROLES.map((r) => {
                   const on = form.role === r.key;

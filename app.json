@@ -1,12 +1,17 @@
 {
   "expo": {
-    "name": "KRA KPI",
+    "name": "369Chats",
+    "//": "slug stays kra-kpi-app ON PURPOSE. With no explicit `scheme`, the dev-client deep link is exp+<slug>, and the EAS projectId below is registered under this slug. Changing it breaks QR-scanning into the already-installed dev build and makes eas reject the project. Rename it only together with a fresh dev-client build.",
     "slug": "kra-kpi-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon369.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": false,
+    "platforms": [
+      "android",
+      "ios"
+    ],
     "android": {
       "package": "com.alphalize.krakpi",
       "googleServicesFile": "./google-services.json",
@@ -29,9 +34,6 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.alphalize.krakpi"
-    },
-    "web": {
-      "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "./plugins/withAlarmLockScreen",
@@ -66,11 +68,13 @@
           "resizeMode": "contain",
           "backgroundColor": "#EBF1FC"
         }
-      ]
+      ],
+      "expo-audio"
     ],
     "extra": {
       "eas": {
-        "projectId": "0a997e07-b838-4445-b1e9-2d381c617135"      }
+        "projectId": "0a997e07-b838-4445-b1e9-2d381c617135"
+      }
     },
     "owner": "jicol"
   }
