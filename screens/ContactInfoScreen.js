@@ -8,12 +8,12 @@
 // is rendered once above the split.
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Switch,
+  View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, SHADOW, RADIUS, SPACING, TOP } from '../theme';
-import { Screen, Loader, EmptyState, Avatar, PopupModal } from '../components/ui';
+import { COLORS, SHADOW, RADIUS, SPACING, TOP, themed } from '../theme';
+import { Screen, Loader, EmptyState, Avatar, PopupModal, Switch } from '../components/ui';
 import * as chat from '../services/chat';
 import presenceText from '../utils/presence';
 import { createLogger } from '../api/logger';
@@ -354,75 +354,75 @@ export default function ContactInfoScreen({
   );
 }
 
-const s = StyleSheet.create({
+const s = themed((C) => ({
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingBottom: SPACING.md,
   },
-  headerTitle: { flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '900', color: COLORS.navy },
+  headerTitle: { flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '900', color: C.navy },
   iconBtn: {
-    width: 40, height: 40, borderRadius: RADIUS.lg, backgroundColor: '#fff',
+    width: 40, height: 40, borderRadius: RADIUS.lg, backgroundColor: COLORS.card,
     alignItems: 'center', justifyContent: 'center', ...SHADOW,
   },
 
   hero: { alignItems: 'center', paddingVertical: SPACING.xl, gap: SPACING.sm },
-  name: { fontSize: 21, fontWeight: '900', color: COLORS.navy, textAlign: 'center', paddingHorizontal: 30 },
-  sub: { fontSize: 14, color: COLORS.slate500, fontWeight: '600' },
-  nickname: { fontSize: 12.5, color: COLORS.faint, fontStyle: 'italic' },
-  presence: { fontSize: 12.5, color: COLORS.slate500, fontWeight: '600' },
-  presenceOn: { color: COLORS.green, fontWeight: '700' },
-  description: { fontSize: 13.5, color: COLORS.slate500, textAlign: 'center', paddingHorizontal: 30, marginTop: 4 },
+  name: { fontSize: 21, fontWeight: '900', color: C.navy, textAlign: 'center', paddingHorizontal: 30 },
+  sub: { fontSize: 14, color: C.slate500, fontWeight: '600' },
+  nickname: { fontSize: 12.5, color: C.faint, fontStyle: 'italic' },
+  presence: { fontSize: 12.5, color: C.slate500, fontWeight: '600' },
+  presenceOn: { color: C.green, fontWeight: '700' },
+  description: { fontSize: 13.5, color: C.slate500, textAlign: 'center', paddingHorizontal: 30, marginTop: 4 },
 
   statRow: {
     flexDirection: 'row', marginHorizontal: SPACING.screen, marginBottom: SPACING.screen,
-    backgroundColor: '#fff', borderRadius: RADIUS.xl, borderWidth: 1, borderColor: COLORS.line, ...SHADOW,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.xl, borderWidth: 1, borderColor: C.line, ...SHADOW,
   },
   stat: { flex: 1, alignItems: 'center', paddingVertical: SPACING.screen, gap: 2 },
-  statVal: { fontSize: 17, fontWeight: '900', color: COLORS.ink },
-  statLbl: { fontSize: 11.5, color: COLORS.slate500, fontWeight: '600' },
+  statVal: { fontSize: 17, fontWeight: '900', color: C.ink },
+  statLbl: { fontSize: 11.5, color: C.slate500, fontWeight: '600' },
 
   card: {
     marginHorizontal: SPACING.screen, marginBottom: SPACING.screen,
-    backgroundColor: '#fff', borderRadius: RADIUS.xl, borderWidth: 1, borderColor: COLORS.line,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.xl, borderWidth: 1, borderColor: C.line,
     overflow: 'hidden', ...SHADOW,
   },
   action: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.screen,
     paddingHorizontal: SPACING.screen, paddingVertical: SPACING.screen,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.line,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
   },
   actionTxt: { fontSize: 15, fontWeight: '700' },
-  actionSub: { fontSize: 12.5, color: COLORS.slate500, marginTop: 2 },
+  actionSub: { fontSize: 12.5, color: C.slate500, marginTop: 2 },
 
   sectionTitle: {
-    fontSize: 12.5, fontWeight: '900', color: COLORS.muted, letterSpacing: 0.8,
+    fontSize: 12.5, fontWeight: '900', color: C.muted, letterSpacing: 0.8,
     paddingHorizontal: SPACING.xl, marginBottom: SPACING.sm, textTransform: 'uppercase',
   },
   member: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.lg,
     paddingHorizontal: SPACING.screen, paddingVertical: SPACING.md,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.line,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
   },
-  memberName: { fontSize: 14.5, fontWeight: '700', color: COLORS.ink },
-  memberMeta: { fontSize: 12, color: COLORS.slate500, marginTop: 1 },
-  adminPill: { backgroundColor: '#E0ECFF', borderRadius: RADIUS.sm, paddingHorizontal: 8, paddingVertical: 3 },
-  adminTxt: { fontSize: 10.5, fontWeight: '900', color: COLORS.primary },
+  memberName: { fontSize: 14.5, fontWeight: '700', color: C.ink },
+  memberMeta: { fontSize: 12, color: C.slate500, marginTop: 1 },
+  adminPill: { backgroundColor: COLORS.slate50, borderRadius: RADIUS.sm, paddingHorizontal: 8, paddingVertical: 3 },
+  adminTxt: { fontSize: 10.5, fontWeight: '900', color: C.primary },
 
   pick: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: SPACING.xl, paddingVertical: SPACING.screen,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.line,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
   },
   memberHero: { alignItems: 'center', gap: 4, paddingTop: SPACING.screen, paddingBottom: SPACING.md },
-  memberHeroName: { fontSize: 16.5, fontWeight: '800', color: COLORS.navy },
-  memberHeroMeta: { fontSize: 12.5, color: COLORS.slate500 },
+  memberHeroName: { fontSize: 16.5, fontWeight: '800', color: C.navy },
+  memberHeroMeta: { fontSize: 12.5, color: C.slate500 },
   memberAction: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.lg,
     paddingHorizontal: SPACING.xl, paddingVertical: SPACING.screen,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.line,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.line,
   },
-  memberActionTxt: { fontSize: 15, color: COLORS.ink, fontWeight: '700' },
+  memberActionTxt: { fontSize: 15, color: C.ink, fontWeight: '700' },
 
-  pickTxt: { fontSize: 15, color: COLORS.ink, fontWeight: '600' },
-  pickNote: { fontSize: 11.5, color: COLORS.faint, padding: SPACING.xl, lineHeight: 16 },
-});
+  pickTxt: { fontSize: 15, color: C.ink, fontWeight: '600' },
+  pickNote: { fontSize: 11.5, color: C.faint, padding: SPACING.xl, lineHeight: 16 },
+}));

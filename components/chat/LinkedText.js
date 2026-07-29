@@ -24,16 +24,40 @@ function trailing(raw) {
   return m ? m[0] : '';
 }
 
-export default function LinkedText({ children, style, linkStyle }) {
+// onLongPress MUST be threaded down to every link span. A <Text> with its own
+// onPress becomes its own touch target, so without this a long-press that starts
+// on the URL is swallowed and the message never enters selection mode — which is
+// exactly how long-press "stopped working" on messages containing a link.
+// `highlight` is the active search term. Matches get a marked span so a search
+// hit is visible in the bubble itself, not only in the results list. The query is
+// user text, not a pattern, so it is escaped before becoming a regex.
+function escapeRe(v) {
+  return String(v).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function Marked({ text, highlight }) {
+  const q = (highlight || '').trim();
+  if (!q) return text;
+  const parts = String(text).split(new RegExp(`(${escapeRe(q)})`, 'ig'));
+  return parts.map((p, i) => (
+    i % 2 === 1
+      ? <Text key={i} style={{ backgroundColor: COLORS.amberBg, fontWeight: '800' }}>{p}</Text>
+      : p
+  ));
+}
+
+export default function LinkedText({ children, style, linkStyle, onLongPress, highlight }) {
   const text = String(children ?? '');
   if (!text) return null;
 
   const parts = text.split(URL_RE);
   // split() with one capture group yields [plain, match, plain, match, …].
   return (
-    <Text style={style}>
+    <Text style={style} onLongPress={onLongPress}>
       {parts.map((part, i) => {
-        if (i % 2 === 0) return part ? <Text key={i}>{part}</Text> : null;
+        if (i % 2 === 0) {
+          return part ? <Text key={i}><Marked text={part} highlight={highlight} /></Text> : null;
+        }
         const tail = trailing(part);
         const shown = tail ? part.slice(0, -tail.length) : part;
         const href = normalise(part);
@@ -42,6 +66,7 @@ export default function LinkedText({ children, style, linkStyle }) {
             <Text
               style={[{ color: COLORS.link, textDecorationLine: 'underline' }, linkStyle]}
               onPress={() => Linking.openURL(href).catch(() => Alert.alert('Could not open', href))}
+              onLongPress={onLongPress}
             >
               {shown}
             </Text>

@@ -15,7 +15,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 
-import { COLORS, SHADOW } from '../theme';
+import { COLORS, SHADOW, themed } from '../theme';
 import GradientBackground from '../components/GradientBackground';
 import { createLogger } from '../api/logger';
 import { fetchManualBundle, fetchManualData, saveManual, deleteManual } from '../services/userManual';
@@ -31,10 +31,10 @@ const ROLE_OPTIONS = [
   { value: 'client', label: 'Client' },
 ];
 const ROLE_STYLE = {
-  all:       { bg: '#EEF2FF', fg: '#4F46E5', label: 'Everyone' },
-  developer: { bg: '#DBEAFE', fg: '#1D4ED8', label: 'Developer' },
-  admin:     { bg: '#EDE9FE', fg: '#7C3AED', label: 'Admin' },
-  client:    { bg: '#CFFAFE', fg: '#0E7490', label: 'Client' },
+  all:       { bg: COLORS.slate50, fg: COLORS.violet, label: 'Everyone' },
+  developer: { bg: COLORS.blueBg, fg: COLORS.primary, label: 'Developer' },
+  admin:     { bg: COLORS.violetBg, fg: COLORS.violet, label: 'Admin' },
+  client:    { bg: COLORS.cyanBg, fg: COLORS.cyan, label: 'Client' },
 };
 
 export default function UserManual({ onBack }) {
@@ -206,7 +206,7 @@ export default function UserManual({ onBack }) {
         <View style={[s.banner, banner.kind === 'ok' ? s.bannerOk : s.bannerErr]}>
           <Ionicons name={banner.kind === 'ok' ? 'checkmark-circle' : 'alert-circle'} size={15}
             color={banner.kind === 'ok' ? COLORS.green : COLORS.red} />
-          <Text style={[s.bannerTxt, { color: banner.kind === 'ok' ? '#065F46' : COLORS.red }]}>{banner.msg}</Text>
+          <Text style={[s.bannerTxt, { color: banner.kind === 'ok' ? COLORS.green : COLORS.red }]}>{banner.msg}</Text>
         </View>
       ) : null}
 
@@ -221,7 +221,7 @@ export default function UserManual({ onBack }) {
             <View style={s.card}>
               <TouchableOpacity style={s.cardMain} onPress={() => openManual(item)} activeOpacity={0.85}>
                 <View style={s.pdfIcon}>
-                  <MaterialCommunityIcons name="file-pdf-box" size={26} color="#DC2626" />
+                  <MaterialCommunityIcons name="file-pdf-box" size={26} color={COLORS.red} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={s.manName} numberOfLines={2}>{item.name}</Text>
@@ -303,8 +303,8 @@ export default function UserManual({ onBack }) {
             <View style={s.modalActions}>
               <TouchableOpacity onPress={() => setEditor(null)}><Text style={s.cancelTxt}>Cancel</Text></TouchableOpacity>
               <TouchableOpacity style={[s.saveBtn, saving && { opacity: 0.6 }]} onPress={submitEditor} disabled={saving} activeOpacity={0.9}>
-                {saving ? <ActivityIndicator size="small" color="#fff" />
-                  : <><Ionicons name="checkmark" size={17} color="#fff" /><Text style={s.saveTxt}>Save</Text></>}
+                {saving ? <ActivityIndicator size="small" color={COLORS.onPrimary} />
+                  : <><Ionicons name="checkmark" size={17} color={COLORS.onPrimary} /><Text style={s.saveTxt}>Save</Text></>}
               </TouchableOpacity>
             </View>
           </View>
@@ -314,54 +314,54 @@ export default function UserManual({ onBack }) {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#EAF2FF' },   // solid fallback under the gradient
+const s = themed((C) => ({
+  root: { flex: 1, backgroundColor: COLORS.shell },   // solid fallback under the gradient
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 12, paddingBottom: 12,
   },
-  iconBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', ...SHADOW },
-  headerTitle: { flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '800', color: COLORS.navy, marginHorizontal: 8 },
+  iconBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: COLORS.card, alignItems: 'center', justifyContent: 'center', ...SHADOW },
+  headerTitle: { flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '800', color: C.navy, marginHorizontal: 8 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   banner: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 14, marginTop: 10, padding: 10, borderRadius: 10 },
-  bannerOk: { backgroundColor: COLORS.greenBg }, bannerErr: { backgroundColor: COLORS.redBg },
+  bannerOk: { backgroundColor: C.greenBg }, bannerErr: { backgroundColor: C.redBg },
   bannerTxt: { flex: 1, fontSize: 12.5, fontWeight: '600' },
 
-  card: { backgroundColor: COLORS.card, borderRadius: 14, marginBottom: 12, padding: 12, ...SHADOW },
+  card: { backgroundColor: C.card, borderRadius: 14, marginBottom: 12, padding: 12, ...SHADOW },
   cardMain: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  pdfIcon: { width: 44, height: 44, borderRadius: 10, backgroundColor: '#FEE2E2', alignItems: 'center', justifyContent: 'center' },
-  manName: { fontSize: 15, fontWeight: '700', color: COLORS.ink },
+  pdfIcon: { width: 44, height: 44, borderRadius: 10, backgroundColor: COLORS.redBg, alignItems: 'center', justifyContent: 'center' },
+  manName: { fontSize: 15, fontWeight: '700', color: C.ink },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 5 },
-  manFile: { flex: 1, fontSize: 11.5, color: COLORS.faint },
+  manFile: { flex: 1, fontSize: 11.5, color: C.faint },
   badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20 },
   badgeTxt: { fontSize: 10.5, fontWeight: '800' },
 
-  rowActions: { flexDirection: 'row', gap: 10, marginTop: 12, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.line },
-  rowBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, backgroundColor: COLORS.bg },
-  rowBtnTxt: { fontSize: 12.5, fontWeight: '700', color: COLORS.primary },
+  rowActions: { flexDirection: 'row', gap: 10, marginTop: 12, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.line },
+  rowBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, backgroundColor: C.bg },
+  rowBtnTxt: { fontSize: 12.5, fontWeight: '700', color: C.primary },
 
   emptyWrap: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 30 },
   emptyBox: { alignItems: 'center', gap: 8 },
-  emptyTitle: { fontSize: 16, fontWeight: '700', color: COLORS.muted, marginTop: 6 },
-  emptySub: { fontSize: 13, color: COLORS.faint, textAlign: 'center', paddingHorizontal: 20 },
+  emptyTitle: { fontSize: 16, fontWeight: '700', color: C.muted, marginTop: 6 },
+  emptySub: { fontSize: 13, color: C.faint, textAlign: 'center', paddingHorizontal: 20 },
 
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 22 },
-  modalCard: { width: '100%', maxWidth: 440, backgroundColor: '#fff', borderRadius: 20, padding: 20, ...SHADOW },
+  modalCard: { width: '100%', maxWidth: 440, backgroundColor: COLORS.card, borderRadius: 20, padding: 20, ...SHADOW },
   modalHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
-  modalTitle: { fontSize: 18, fontWeight: '800', color: COLORS.navy },
-  fLbl: { fontSize: 12.5, fontWeight: '700', color: COLORS.muted, marginBottom: 6 },
-  input: { borderWidth: 1, borderColor: COLORS.line, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14.5, color: COLORS.ink, backgroundColor: '#fff' },
+  modalTitle: { fontSize: 18, fontWeight: '800', color: C.navy },
+  fLbl: { fontSize: 12.5, fontWeight: '700', color: C.muted, marginBottom: 6 },
+  input: { borderWidth: 1, borderColor: C.line, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14.5, color: C.ink, backgroundColor: COLORS.card },
   roleWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  roleChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: COLORS.line, backgroundColor: '#fff' },
-  roleChipOn: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  roleChipTxt: { fontSize: 13, fontWeight: '700', color: COLORS.muted },
-  roleChipTxtOn: { color: '#fff' },
-  pickBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: COLORS.primary, borderStyle: 'dashed', borderRadius: 10, paddingVertical: 12, paddingHorizontal: 12 },
-  pickTxt: { flex: 1, fontSize: 13.5, fontWeight: '600', color: COLORS.primary },
-  hint: { fontSize: 11.5, color: COLORS.faint, marginTop: 6 },
+  roleChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: C.line, backgroundColor: COLORS.card },
+  roleChipOn: { backgroundColor: C.primary, borderColor: C.primary },
+  roleChipTxt: { fontSize: 13, fontWeight: '700', color: C.muted },
+  roleChipTxtOn: { color: COLORS.onPrimary },
+  pickBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: C.primary, borderStyle: 'dashed', borderRadius: 10, paddingVertical: 12, paddingHorizontal: 12 },
+  pickTxt: { flex: 1, fontSize: 13.5, fontWeight: '600', color: C.primary },
+  hint: { fontSize: 11.5, color: C.faint, marginTop: 6 },
   modalActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 18, marginTop: 22 },
-  cancelTxt: { fontSize: 14.5, fontWeight: '700', color: COLORS.muted },
-  saveBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: COLORS.primary, paddingHorizontal: 22, paddingVertical: 11, borderRadius: 10 },
-  saveTxt: { fontSize: 14.5, fontWeight: '800', color: '#fff' },
-});
+  cancelTxt: { fontSize: 14.5, fontWeight: '700', color: C.muted },
+  saveBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.primary, paddingHorizontal: 22, paddingVertical: 11, borderRadius: 10 },
+  saveTxt: { fontSize: 14.5, fontWeight: '800', color: COLORS.onPrimary },
+}));

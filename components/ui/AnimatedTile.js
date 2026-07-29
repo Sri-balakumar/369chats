@@ -8,7 +8,7 @@ import {
   View, Text, TouchableOpacity, Animated, Easing, Dimensions, StyleSheet,
 } from 'react-native';
 import Icon from './Icon';
-import { COLORS } from '../../theme';
+import { COLORS, themed } from '../../theme';
 
 const SW = Dimensions.get('window').width;
 export const TILE_W = (SW - 20 * 2 - 12) / 2;
@@ -56,16 +56,16 @@ export default function AnimatedTile({ tile, index = 0, onPress, width = TILE_W 
   );
 }
 
-const s = StyleSheet.create({
+const s = themed((C) => ({
   card: {
     minHeight: 68, borderRadius: 16,
     flexDirection: 'row', alignItems: 'center', gap: 12,
     paddingHorizontal: 14, paddingVertical: 12,
-    shadowColor: '#334155', shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 2,
+    shadowColor: COLORS.slate700, shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 2,
   },
   chip: {
     width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.9)',
     alignItems: 'center', justifyContent: 'center',
   },
-  label: { flex: 1, fontSize: 12.5, fontWeight: '800', color: COLORS.ink },
-});
+  label: { flex: 1, fontSize: 12.5, fontWeight: '800', color: C.ink },
+}));

@@ -3,7 +3,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS, RADIUS, SPACING } from '../../theme';
+import { COLORS, RADIUS, SPACING, themed } from '../../theme';
 
 export default function SelectField({ label, value, placeholder, onPress, required, style }) {
   return (
@@ -23,13 +23,13 @@ export default function SelectField({ label, value, placeholder, onPress, requir
   );
 }
 
-const s = StyleSheet.create({
-  label: { fontSize: 13, fontWeight: '700', color: COLORS.muted, marginTop: SPACING.lg, marginBottom: SPACING.xs },
-  req: { color: COLORS.red, fontWeight: '900' },
+const s = themed((C) => ({
+  label: { fontSize: 13, fontWeight: '700', color: C.muted, marginTop: SPACING.lg, marginBottom: SPACING.xs },
+  req: { color: C.red, fontWeight: '900' },
   field: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: '#F5F8FD', borderWidth: 1.5, borderColor: '#E7ECF3',
+    backgroundColor: COLORS.slate50, borderWidth: 1.5, borderColor: COLORS.line,
     borderRadius: RADIUS.lg, paddingHorizontal: SPACING.screen, height: 50,
   },
   txt: { flex: 1, fontSize: 15, marginRight: SPACING.sm },
-});
+}));

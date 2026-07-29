@@ -147,6 +147,10 @@ class Chat369API(http.Controller):
     # Realtime (bus) + presence helpers                                   #
     # ================================================================== #
     _ONLINE_WINDOW = 45   # seconds since chat_last_seen to still count as "online"
+    # How long after sending you may still delete a message FOR EVERYONE. Both
+    # clients read this back off /chat/messages via `can_delete_all`, so the
+    # window lives in exactly one place.
+    _DELETE_ALL_HOURS = 24
 
     def _user_channel(self, user):
         """Non-guessable per-user bus channel so members can't eavesdrop by uid."""
@@ -259,7 +263,18 @@ class Chat369API(http.Controller):
             'reactions': self._reactions_of(msg, me_id),
             'created': self._dt(msg.create_date),
             'status': self._msg_status(msg, conv),
+            # Whether "Delete for everyone" is still allowed on this message.
+            # Computed here so the clients don't each re-derive the 24h window
+            # from a timestamp and disagree with the server across timezones.
+            'can_delete_all': self._can_delete_all(msg, me_id),
         }
+
+    def _can_delete_all(self, msg, me_id):
+        if msg.deleted or msg.author_id.id != me_id:
+            return False
+        if not msg.create_date:
+            return True
+        return (fields.Datetime.now() - msg.create_date) <= timedelta(hours=self._DELETE_ALL_HOURS)
 
     def _serialize_poll(self, msg, me_id):
         """Live poll tally for a poll message: options with counts + my votes."""
@@ -376,10 +391,17 @@ class Chat369API(http.Controller):
             # Don't push to members who have muted this chat.
             others = conv._other_members(author.id).filtered(
                 lambda m: not (m.muted and (not m.muted_until or m.muted_until > now)))
-            user_ids = others.mapped('user_id').ids
-            tokens = request.env['kpi.push.token'].sudo().tokens_for_users(user_ids)
-            if not tokens:
+
+            # Honour each recipient's own notification settings. These were stored
+            # by /chat/settings and then ignored here, so turning "Group messages"
+            # off changed nothing — the push still arrived. They have to be applied
+            # server-side: once the OS has displayed a notification, no client can
+            # take it back.
+            pref = 'chat_notif_groups' if conv.is_group else 'chat_notif_messages'
+            others = others.filtered(lambda m: getattr(m.user_id, pref, True))
+            if not others:
                 return
+
             preview = self._preview(msg)
             if getattr(msg, 'is_meet', False):
                 preview = '📹 Please join the meeting'   # meet link → everyone gets a clear "join" push
@@ -390,14 +412,32 @@ class Chat369API(http.Controller):
                 title = author.name
                 body = preview
             data = {'chat_id': conv.id, 'event': 'chat_message'}
-            messages = [{
-                'to': tok,
-                'title': (title or 'New message')[:120],
-                'body': (body or 'New message')[:160],
-                'data': data,
-                'sound': 'default',
-                'channelId': 'default',
-            } for tok in tokens]
+
+            # "Show message preview" is per recipient, so the body differs per
+            # group — build one batch for each rather than one for everyone.
+            messages = []
+            Token = request.env['kpi.push.token'].sudo()
+            for wants_preview in (True, False):
+                uids = others.filtered(
+                    lambda m: bool(getattr(m.user_id, 'chat_notif_preview', True)) is wants_preview
+                ).mapped('user_id').ids
+                if not uids:
+                    continue
+                toks = Token.tokens_for_users(uids)
+                if not toks:
+                    continue
+                shown = body if wants_preview else 'New message'
+                sound = 'default'
+                messages += [{
+                    'to': tok,
+                    'title': (title or 'New message')[:120],
+                    'body': (shown or 'New message')[:160],
+                    'data': data,
+                    'sound': sound,
+                    'channelId': 'default',
+                } for tok in toks]
+            if not messages:
+                return
             # Fire the (slow) network POST in a daemon thread so /chat/send returns
             # in milliseconds instead of waiting on Expo (was blocking up to 10s).
             dbname = request.env.cr.dbname
@@ -558,9 +598,15 @@ class Chat369API(http.Controller):
         img = conv.image if conv.exists() else None
         if not img:
             return request.not_found()
+        # Members only. This had no check at all, so any logged-in user could
+        # enumerate group photos by id — and it was served `public`, so proxies
+        # and browsers were free to cache and re-serve them.
+        me = request.env.user
+        if me.id not in conv.member_ids.filtered(lambda m: not m.left_at).mapped('user_id').ids:
+            return request.not_found()
         return request.make_response(
             base64.b64decode(img),
-            [('Content-Type', 'image/png'), ('Cache-Control', 'public, max-age=3600')])
+            [('Content-Type', 'image/png'), ('Cache-Control', 'private, max-age=3600')])
 
     # ================================================================== #
     # Contacts (New chat) — every company number                         #
@@ -989,7 +1035,18 @@ class Chat369API(http.Controller):
         msg = request.env['chat.message'].sudo().browse(msg_id)
         if not msg.exists() or not msg.attachment or msg.deleted:
             return request.not_found()
-        if me.id not in msg.conversation_id.member_ids.mapped('user_id').ids:
+        # ACTIVE members only. This used to accept every member row, so a user who
+        # had left a group kept full access to its media by message id.
+        active_uids = msg.conversation_id.member_ids.filtered(
+            lambda m: not m.left_at).mapped('user_id').ids
+        if me.id not in active_uids:
+            return request.not_found()
+        # "Delete for me" / "Clear chat" hid the message everywhere except here.
+        if me.id in msg.hidden_for_user_ids.ids:
+            return request.not_found()
+        # A disappearing message is gone from every list once it expires; the file
+        # has to go with it, not linger until the cron happens to run.
+        if msg.expire_at and msg.expire_at <= fields.Datetime.now():
             return request.not_found()
         # View once: never serve to the sender, or to a recipient who already opened it.
         if msg.view_once and (msg.author_id.id == me.id or me.id in msg.viewed_by_user_ids.ids):
@@ -1031,7 +1088,7 @@ class Chat369API(http.Controller):
         me = request.env.user
         conv, member = self._member_conv(params.get('conversation_id'))
         if not conv:
-            return {'status': False}
+            return {'status': False, 'message': 'Not a member of this chat.'}
         self._bus_conv(conv, 'typing',
                        {'user_id': me.id, 'name': me.name, 'typing': bool(params.get('typing'))},
                        exclude_uid=me.id)
@@ -1504,12 +1561,12 @@ class Chat369API(http.Controller):
         the composer before sending (WhatsApp-style)."""
         url = (params.get('url') or '').strip()
         if not url.lower().startswith(('http://', 'https://')):
-            return {'status': False}
+            return {'status': False, 'message': 'Calls are 1:1 only for now.'}
         if self._url_is_private(url):   # SSRF guard: never fetch internal/loopback hosts
-            return {'status': False}
+            return {'status': False, 'message': 'Not a member of this chat.'}
         data = self._scrape_og(url)
         if not (data['title'] or data['image']):
-            return {'status': False}
+            return {'status': False, 'message': 'Not a member of this chat.'}
         return {'status': True, 'url': url, 'title': data['title'],
                 'desc': data['desc'], 'image': data['image']}
 
@@ -1524,12 +1581,14 @@ class Chat369API(http.Controller):
         others = conv._other_members(me.id).filtered(lambda m: not m.left_at)
         return others[:1].user_id if others else False
 
-    def _ice_servers(self):
+    def _ice_servers(self, turn=True):
+        """STUN is public; TURN carries credentials, so callers that have not
+        proven membership pass turn=False and get the STUN entry only."""
         P = request.env['ir.config_parameter'].sudo()
         servers = [{'urls': P.get_param('chats_369.stun_url') or 'stun:stun.l.google.com:19302'}]
-        turn = P.get_param('chats_369.turn_url')
-        if turn:
-            servers.append({'urls': turn, 'username': P.get_param('chats_369.turn_user') or '',
+        turn_url = P.get_param('chats_369.turn_url') if turn else None
+        if turn_url:
+            servers.append({'urls': turn_url, 'username': P.get_param('chats_369.turn_user') or '',
                             'credential': P.get_param('chats_369.turn_cred') or ''})
         return servers
 
@@ -1546,6 +1605,15 @@ class Chat369API(http.Controller):
 
     @http.route('/chat/call/ice', type='json', auth='user', methods=['POST'], csrf=False)
     def chat_call_ice(self, **params):
+        """ICE servers for a call. Requires membership of the conversation the
+        call is for: TURN credentials are a shared secret with real cost attached,
+        and this route used to hand them to any authenticated user who asked.
+
+        Without a conversation_id only the public STUN entry is returned, so a
+        client that has not picked a chat yet still works and leaks nothing."""
+        conv, member = self._member_conv(params.get('conversation_id'))
+        if not conv:
+            return {'status': True, 'ice': self._ice_servers(turn=False)}
         return {'status': True, 'ice': self._ice_servers()}
 
     @http.route('/chat/call/start', type='json', auth='user', methods=['POST'], csrf=False)
@@ -1572,7 +1640,7 @@ class Chat369API(http.Controller):
         me = request.env.user
         conv, member = self._member_conv(params.get('conversation_id'))
         if not conv:
-            return {'status': False}
+            return {'status': False, 'message': 'Not a member of this chat.'}
         other = self._call_other(conv, me)
         if other:
             self._bus_to_user(other, 'call_accept', {'call_id': params.get('call_id'), 'conversation_id': conv.id, 'from_id': me.id})
@@ -1583,7 +1651,7 @@ class Chat369API(http.Controller):
         me = request.env.user
         conv, member = self._member_conv(params.get('conversation_id'))
         if not conv:
-            return {'status': False}
+            return {'status': False, 'message': 'Not a member of this chat.'}
         other = self._call_other(conv, me)
         if other:
             self._bus_to_user(other, 'call_reject', {'call_id': params.get('call_id'), 'conversation_id': conv.id})
@@ -1594,7 +1662,7 @@ class Chat369API(http.Controller):
         me = request.env.user
         conv, member = self._member_conv(params.get('conversation_id'))
         if not conv:
-            return {'status': False}
+            return {'status': False, 'message': 'Not a member of this chat.'}
         other = self._call_other(conv, me)
         if other:
             self._bus_to_user(other, 'call_signal', {
@@ -1607,7 +1675,7 @@ class Chat369API(http.Controller):
         me = request.env.user
         conv, member = self._member_conv(params.get('conversation_id'))
         if not conv:
-            return {'status': False}
+            return {'status': False, 'message': 'Not a member of this chat.'}
         other = self._call_other(conv, me)
         if other:
             self._bus_to_user(other, 'call_end', {'call_id': params.get('call_id'), 'conversation_id': conv.id})
@@ -1716,7 +1784,7 @@ class Chat369API(http.Controller):
     @http.route('/chat/pin_message', type='json', auth='user', methods=['POST'], csrf=False)
     def chat_pin_message(self, **params):
         """Pin/unpin a message for everyone in the chat. Pins auto-expire after
-        1/7/14/30 days; max 5 active pins per chat (mirrors customer_support)."""
+        1/7/14/30 days; max MAX_MSG_PINS active pins per chat."""
         msg, conv, member = self._member_msg(params.get('message_id'))
         if not conv:
             return {'status': False, 'message': 'Not a member of this chat.'}
@@ -1756,6 +1824,13 @@ class Chat369API(http.Controller):
             return {'status': True, 'removed': True, 'message_id': msg.id}
         if msg.author_id.id != me.id:
             return {'status': False, 'message': 'You can only delete your own messages for everyone.'}
+        # Delete-for-everyone expires 24h after the message was sent. Enforced
+        # here, not just hidden in the clients — both of them compute the window
+        # from the message timestamp, and a stale client would otherwise be able
+        # to unsend something from last week.
+        if msg.create_date and (fields.Datetime.now() - msg.create_date) > timedelta(hours=self._DELETE_ALL_HOURS):
+            return {'status': False,
+                    'message': 'You can only delete a message for everyone within 24 hours of sending it.'}
         msg.sudo().write({'deleted': True, 'pinned': False, 'pin_expiry': False})
         self._bus_message(conv, msg, 'update', exclude_uid=me.id)
         return {'status': True, 'message': self._serialize_message(msg, me.id, conv)}
@@ -1959,7 +2034,16 @@ class Chat369API(http.Controller):
             return {'status': False, 'message': 'List name is required.'}
         my_convs = set(request.env['chat.member'].sudo().search(
             [('user_id', '=', me.id), ('left_at', '=', False)]).mapped('conversation_id').ids)
-        conv_ids = [int(x) for x in (params.get('conversation_ids') or []) if int(x) in my_convs]
+        # int() unguarded here turned a bad payload into a 500 instead of the
+        # {status: False} contract every other route in this file honours.
+        conv_ids = []
+        for x in (params.get('conversation_ids') or []):
+            try:
+                cid = int(x)
+            except (TypeError, ValueError):
+                continue
+            if cid in my_convs:
+                conv_ids.append(cid)
         lst = request.env['chat.list'].sudo().create({
             'owner_user_id': me.id, 'name': name, 'emoji': (params.get('emoji') or ''),
             'conversation_ids': [(6, 0, conv_ids)],
@@ -1997,6 +2081,15 @@ class Chat369API(http.Controller):
         nick = (params.get('nick') or '').strip()
         if not request.env['res.users'].sudo().browse(uid).exists():
             return {'status': False, 'message': 'User not found.'}
+        # You may only nickname someone you actually share a chat with. Without
+        # this you could set a private label against any user id in the database,
+        # which is both meaningless and a way to probe the directory.
+        shared = request.env['chat.member'].sudo().search_count([
+            ('user_id', '=', uid), ('left_at', '=', False),
+            ('conversation_id.member_ids.user_id', '=', me.id),
+        ])
+        if not shared:
+            return {'status': False, 'message': 'You can only nickname people you chat with.'}
         N = request.env['chat.nickname'].sudo()
         rec = N.search([('owner_user_id', '=', me.id), ('target_user_id', '=', uid)], limit=1)
         if nick:

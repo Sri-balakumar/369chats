@@ -8,7 +8,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Modal, Image, ActivityIndicat
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS } from '../theme';
+import { COLORS, themed } from '../theme';
 import { createLogger } from '../api/logger';
 
 const log = createLogger('Camera');
@@ -59,7 +59,7 @@ export default function CameraCaptureModal({ visible, onCapture, onClose }) {
   if (!permission) {
     return (
       <Modal visible transparent statusBarTranslucent>
-        <View style={s.center}><ActivityIndicator color="#fff" /></View>
+        <View style={s.center}><ActivityIndicator color={COLORS.onOverlay} /></View>
       </Modal>
     );
   }
@@ -69,7 +69,7 @@ export default function CameraCaptureModal({ visible, onCapture, onClose }) {
     return (
       <Modal visible animationType="fade" statusBarTranslucent onRequestClose={close}>
         <View style={s.permWrap}>
-          <Ionicons name="camera-outline" size={54} color="#fff" />
+          <Ionicons name="camera-outline" size={54} color={COLORS.onOverlay} />
           <Text style={s.permTxt}>Camera access is needed to take your profile photo.</Text>
           <TouchableOpacity style={s.permBtn} onPress={requestPermission} activeOpacity={0.9}>
             <Text style={s.permBtnTxt}>Grant Permission</Text>
@@ -91,12 +91,12 @@ export default function CameraCaptureModal({ visible, onCapture, onClose }) {
           <View style={s.previewWrap}>
             <Image source={{ uri: preview }} style={s.previewImg} />
             <View style={s.previewRow}>
-              <TouchableOpacity style={[s.pBtn, { backgroundColor: '#EF4444' }]} onPress={retake} activeOpacity={0.9}>
-                <Ionicons name="refresh" size={18} color="#fff" />
+              <TouchableOpacity style={[s.pBtn, { backgroundColor: COLORS.red }]} onPress={retake} activeOpacity={0.9}>
+                <Ionicons name="refresh" size={18} color={COLORS.onOverlay} />
                 <Text style={s.pBtnTxt}>Retake</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[s.pBtn, { backgroundColor: '#16A34A' }]} onPress={confirm} activeOpacity={0.9}>
-                <Ionicons name="checkmark" size={18} color="#fff" />
+              <TouchableOpacity style={[s.pBtn, { backgroundColor: COLORS.green }]} onPress={confirm} activeOpacity={0.9}>
+                <Ionicons name="checkmark" size={18} color={COLORS.onOverlay} />
                 <Text style={s.pBtnTxt}>Use Photo</Text>
               </TouchableOpacity>
             </View>
@@ -109,10 +109,10 @@ export default function CameraCaptureModal({ visible, onCapture, onClose }) {
                 <Text style={s.ctrlTxt}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={s.capBtn} onPress={takePicture} disabled={busy} activeOpacity={0.8}>
-                <View style={[s.capInner, busy && { backgroundColor: '#999' }]} />
+                <View style={[s.capInner, busy && { backgroundColor: COLORS.faint }]} />
               </TouchableOpacity>
               <TouchableOpacity style={s.ctrlBtn} onPress={() => setFacing((f) => (f === 'back' ? 'front' : 'back'))} activeOpacity={0.8}>
-                <Ionicons name="camera-reverse-outline" size={26} color="#fff" />
+                <Ionicons name="camera-reverse-outline" size={26} color={COLORS.onOverlay} />
               </TouchableOpacity>
             </View>
           </>
@@ -122,25 +122,25 @@ export default function CameraCaptureModal({ visible, onCapture, onClose }) {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#000' },
-  center: { flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' },
+const s = themed((C) => ({
+  root: { flex: 1, backgroundColor: COLORS.overlay },
+  center: { flex: 1, backgroundColor: COLORS.overlay, alignItems: 'center', justifyContent: 'center' },
   controls: {
     flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center',
-    paddingVertical: 20, paddingBottom: 40, backgroundColor: '#000',
+    paddingVertical: 20, paddingBottom: 40, backgroundColor: COLORS.overlay,
   },
   ctrlBtn: { paddingHorizontal: 16, paddingVertical: 10, minWidth: 70, alignItems: 'center' },
-  ctrlTxt: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  capBtn: { width: 74, height: 74, borderRadius: 37, borderWidth: 4, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' },
-  capInner: { width: 58, height: 58, borderRadius: 29, backgroundColor: '#fff' },
-  previewWrap: { flex: 1, backgroundColor: '#000' },
+  ctrlTxt: { color: COLORS.onOverlay, fontSize: 16, fontWeight: '600' },
+  capBtn: { width: 74, height: 74, borderRadius: 37, borderWidth: 4, borderColor: COLORS.onOverlay, alignItems: 'center', justifyContent: 'center' },
+  capInner: { width: 58, height: 58, borderRadius: 29, backgroundColor: COLORS.onOverlay },
+  previewWrap: { flex: 1, backgroundColor: COLORS.overlay },
   previewImg: { flex: 1, resizeMode: 'contain' },
-  previewRow: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 20, paddingBottom: 40, backgroundColor: '#000' },
+  previewRow: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 20, paddingBottom: 40, backgroundColor: COLORS.overlay },
   pBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 30, paddingVertical: 14, borderRadius: 10 },
-  pBtnTxt: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  permWrap: { flex: 1, backgroundColor: '#0B1220', alignItems: 'center', justifyContent: 'center', padding: 28, gap: 16 },
-  permTxt: { color: '#fff', fontSize: 15.5, textAlign: 'center', lineHeight: 22 },
-  permBtn: { backgroundColor: COLORS.primary, paddingHorizontal: 26, paddingVertical: 13, borderRadius: 10 },
-  permBtnTxt: { color: '#fff', fontSize: 15, fontWeight: '800' },
-  permCancel: { color: '#9CA3AF', fontSize: 15, fontWeight: '600' },
-});
+  pBtnTxt: { color: COLORS.onOverlay, fontSize: 16, fontWeight: '700' },
+  permWrap: { flex: 1, backgroundColor: COLORS.editorBg, alignItems: 'center', justifyContent: 'center', padding: 28, gap: 16 },
+  permTxt: { color: COLORS.onOverlay, fontSize: 15.5, textAlign: 'center', lineHeight: 22 },
+  permBtn: { backgroundColor: C.primary, paddingHorizontal: 26, paddingVertical: 13, borderRadius: 10 },
+  permBtnTxt: { color: COLORS.onOverlay, fontSize: 15, fontWeight: '800' },
+  permCancel: { color: COLORS.faint, fontSize: 15, fontWeight: '600' },
+}));

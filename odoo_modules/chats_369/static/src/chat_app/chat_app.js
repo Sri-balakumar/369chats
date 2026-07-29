@@ -50,13 +50,13 @@ export class Chat369App extends Component {
                             <span class="o369-brand">369Chats</span>
                         </span>
                         <span class="o369-headbtns">
-                            <button class="o369-iconbtn" t-on-click="toggleDark" t-att-title="state.dark ? 'Switch to light' : 'Switch to dark'"><i class="fa" t-att-class="state.dark ? 'fa-sun-o' : 'fa-moon-o'"/></button>
                             <button class="o369-iconbtn" t-on-click="openContacts" title="New chat"><i class="fa fa-pencil-square-o"/></button>
                             <button class="o369-iconbtn" t-on-click.stop="toggleHeaderMenu" title="Menu"><i class="fa fa-ellipsis-v"/></button>
                             <div class="o369-hdrmenu" t-if="state.headerMenu">
                                 <button class="o369-menuitem" t-on-click.stop="menuNewGroup"><i class="fa fa-users"/> New group</button>
                                 <button class="o369-menuitem" t-on-click.stop="openStarred"><i class="fa fa-star"/> Starred messages</button>
                                 <button class="o369-menuitem" t-on-click.stop="markAllRead"><i class="fa fa-check"/> Mark all as read</button>
+                                <button class="o369-menuitem o369-danger" t-on-click.stop="confirmLogout"><i class="fa fa-sign-out"/> Log out</button>
                             </div>
                         </span>
                     </div>
@@ -282,7 +282,7 @@ export class Chat369App extends Component {
                                         <button class="o369-menuitem" t-if="m.mine and !m.deleted and !m._pending" t-on-click.stop="() => this.openMessageInfo(m)"><i class="fa fa-info-circle"/> Info</button>
                                         <button class="o369-menuitem" t-if="canEditMsg(m)" t-on-click.stop="() => this.startEdit(m)"><i class="fa fa-pencil"/> Edit</button>
                                         <button class="o369-menuitem" t-on-click.stop="() => this.deleteScope(m, 'me')"><i class="fa fa-trash-o"/> Delete for me</button>
-                                        <button class="o369-menuitem o369-danger" t-if="m.mine" t-on-click.stop="() => this.deleteScope(m, 'everyone')"><i class="fa fa-trash"/> Delete for everyone</button>
+                                        <button class="o369-menuitem o369-danger" t-if="m.can_delete_all" t-on-click.stop="() => this.deleteScope(m, 'everyone')"><i class="fa fa-trash"/> Delete for everyone</button>
                                     </div>
 
                                     <div class="o369-sender" t-if="!m.mine and currentIsGroup()" t-esc="m.author_name"/>
@@ -656,11 +656,7 @@ export class Chat369App extends Component {
                 <t t-elif="state.settingsView === 'theme'">
                     <div class="o369-panehead"><button class="o369-backbtn" t-on-click="() => this.settingsGo('menu')"><i class="fa fa-arrow-left"/></button><span class="o369-panetitle">Theme</span></div>
                     <div class="o369-setbody">
-                        <div class="o369-setsecttitle">Display</div>
-                        <button class="o369-optrow" t-on-click="() => this.setThemeMode('system')"><span>System default</span><i class="fa fa-check o369-optck" t-if="state.themeMode === 'system'"/></button>
-                        <button class="o369-optrow" t-on-click="() => this.setThemeMode('light')"><span>Light</span><i class="fa fa-check o369-optck" t-if="state.themeMode === 'light'"/></button>
-                        <button class="o369-optrow" t-on-click="() => this.setThemeMode('dark')"><span>Dark</span><i class="fa fa-check o369-optck" t-if="state.themeMode === 'dark'"/></button>
-                        <div class="o369-setsecttitle" style="margin-top:16px">Accent colour</div>
+                        <div class="o369-setsecttitle">Accent colour</div>
                         <div class="o369-themegrid">
                             <t t-foreach="THEMES" t-as="th" t-key="th.id">
                                 <button class="o369-themecard" t-att-class="{ 'o369-themecard-on': state.theme === th.id }" t-on-click="() => this.setTheme(th.id)">
@@ -1305,7 +1301,7 @@ export class Chat369App extends Component {
             gmeetSaved: '', gmeetHelpOpen: false, chipMenuOpen: false, notifBannerHidden: false,
             drafts: {}, composerEmojiOpen: false, disappearOpen: false, pollCreate: null,
             mediaReview: null, viewOnceView: null,
-            composerLink: null, composerLinkHidden: false, previews: {}, theme: 'ocean', themeMode: 'system', dark: false, call: null,
+            composerLink: null, composerLinkHidden: false, previews: {}, theme: 'ocean', call: null,
             calls: { recent: [], favorites: [], upcoming: [] }, scheduleForm: null,
             mentionOpen: false, mentionMatches: [], mentionIdx: 0, mentionMembers: [], mentionMembersConv: 0, mentionStart: 0, mentionEnd: 0,
             settingsView: 'menu', profileEdit: { field: null, val: '' },
@@ -1323,12 +1319,6 @@ export class Chat369App extends Component {
         this.remoteVideo = useRef("remoteVideo");
         try { this.state.drafts = JSON.parse(localStorage.getItem('o369_drafts') || '{}') || {}; } catch (e) { this.state.drafts = {}; }
         try { this.state.theme = localStorage.getItem('o369_theme') || 'clean'; } catch (e) {}
-        try { this.state.themeMode = localStorage.getItem('o369_thememode') || 'system'; } catch (e) {}
-        this._applyThemeMode();
-        try {
-            this._mqDark = window.matchMedia('(prefers-color-scheme: dark)');
-            this._mqDark.addEventListener('change', () => { if (this.state.themeMode === 'system') this._applyThemeMode(); });
-        } catch (e) {}
         this._scrollPending = false;
         this._timer = null;
         // Close any open menu when clicking elsewhere (caret/menu clicks use .stop).
@@ -1495,10 +1485,15 @@ export class Chat369App extends Component {
             try { const res = await rpc('/chat/edit_message', { message_id: id, body }); if (res && res.status === false) { this.notify(res.message); return; } this._applyMsg(res); this.loadConversations(); } catch (e) {}
             return;
         }
-        // Configured meeting trigger word -> post the typed word as a normal message,
-        // then generate a Google Meet link right after (so the chat shows the word first,
-        // then the Meet card). createMeet() is fired once the text send resolves below.
-        const isMeetTrigger = this._meetTriggered(body);
+        // A configured trigger word IS the command — it creates the meeting and is
+        // not posted as a message. It used to be sent as text first, so typing
+        // "meet" left the literal word sitting above the Meet card.
+        if (this._meetTriggered(body)) {
+            this.state.draft = ''; this._saveDraft(); this._clearComposerLink();
+            this.state.replyTo = null; this._stopTyping();
+            await this.createMeet();
+            return;
+        }
         const replyTo = this.state.replyTo;
         const replyId = replyTo ? replyTo.id : 0;
         this.state.draft = ''; this._saveDraft(); this._clearComposerLink(); this.state.replyTo = null; this._stopTyping();
@@ -1530,8 +1525,6 @@ export class Chat369App extends Component {
                 this.loadConversations();
                 this._scanPreviews();
             }
-            // Trigger word was just posted as text — now drop the Meet card right below it.
-            if (isMeetTrigger) this.createMeet();
         } catch (e) {
             this.state.messages = this.state.messages.filter((m) => m.id !== tempId);
             this.notify('Message not sent'); this.state.draft = body; this.state.replyTo = replyTo || null;
@@ -1633,7 +1626,13 @@ export class Chat369App extends Component {
     pickEmoji(e) { const m = this.state.emojiPickerMsg; this.state.emojiPickerMsg = null; if (m) this.react(m, e); }
     async deleteScope(m, scope) {
         this.closeMenus();
-        if (!await this.askConfirm({ title: 'Delete message', body: scope === 'everyone' ? 'Delete this message for everyone?' : 'Delete this message for you?', okLabel: 'Delete', danger: true })) return;
+        if (!await this.askConfirm({
+            title: 'Delete message',
+            body: scope === 'everyone'
+                ? 'Everyone in this chat will see "This message was deleted". This cannot be undone.'
+                : 'This removes the message from your copy of the chat only. Others keep theirs.',
+            okLabel: 'Delete', danger: true,
+        })) return;
         try {
             const res = await rpc('/chat/delete_message', { message_id: m.id, scope });
             if (res && res.status === false) { this.notify(res.message); return; }
@@ -1970,6 +1969,16 @@ export class Chat369App extends Component {
     }
     copyMyMobile() { try { navigator.clipboard.writeText((this.state.me && this.state.me.mobile) || ''); this.notify('Copied', 'success'); } catch (e) { this.notify('Could not copy'); } }
     logout() { window.location.href = '/web/session/logout?redirect=/web/login'; }
+    // The ⋮ entry confirms first — Settings sits behind a pane, the ⋮ is one tap
+    // from "Mark all as read", so a mis-tap there would end the session.
+    async confirmLogout() {
+        this.closeMenus();
+        if (!await this.askConfirm({
+            title: 'Log out', body: "You'll need to sign in again.",
+            okLabel: 'Log out', danger: true,
+        })) return;
+        this.logout();
+    }
     // ---------------- browser notifications (WhatsApp-Web-style) ----------------
     async enableBrowserNotifs() {
         if (!('Notification' in window)) { this.notify('Notifications are not supported here'); return; }
@@ -2271,22 +2280,8 @@ export class Chat369App extends Component {
     _clearComposerLink() { this.state.composerLink = null; this.state.composerLinkHidden = false; this._composerLinkUrl = ''; clearTimeout(this._complinkTimer); }
     // ---- theme ----
     setTheme(t) { this.state.theme = t; try { localStorage.setItem('o369_theme', t); } catch (e) {} }
-    // Light / dark mode (WhatsApp-style: System default / Light / Dark).
-    _applyThemeMode() {
-        const m = this.state.themeMode;
-        let dark = (m === 'dark');
-        if (m === 'system') { try { dark = window.matchMedia('(prefers-color-scheme: dark)').matches; } catch (e) { dark = false; } }
-        this.state.dark = dark;
-    }
-    setThemeMode(mode) {
-        this.state.themeMode = mode;
-        try { localStorage.setItem('o369_thememode', mode); } catch (e) {}
-        this._applyThemeMode();
-    }
-    toggleDark() { this.setThemeMode(this.state.dark ? 'light' : 'dark'); }
-    // Reset all appearance choices back to the default 369Chats look.
+    // Reset appearance back to the default 369Chats look.
     resetAppearance() {
-        this.setThemeMode('system');
         this.setTheme('clean');
         try { localStorage.removeItem('o369_wallpaper'); } catch (e) {}
         this.notify('Appearance reset to default', 'success');
@@ -2294,10 +2289,17 @@ export class Chat369App extends Component {
 
     // ================= In-app calls (WebRTC, 1:1) =================
     canCall() { const c = this.state.activeConv; return !!(c && !c.is_group && !c.oversight && !c.blocked_by_me); }
-    async _iceConfig() {
-        if (this._iceCache) return this._iceCache;
-        try { const r = await rpc('/chat/call/ice', {}); this._iceCache = (r && r.ice) || [{ urls: 'stun:stun.l.google.com:19302' }]; }
-        catch (e) { this._iceCache = [{ urls: 'stun:stun.l.google.com:19302' }]; }
+    // conversation_id is required for TURN: the server only releases TURN
+    // credentials to an active member of that chat. Cached per conversation,
+    // since a cache shared across chats would hand back the wrong entitlement.
+    async _iceConfig(convId) {
+        const key = convId || 0;
+        if (this._iceCache && this._iceCacheFor === key) return this._iceCache;
+        try {
+            const r = await rpc('/chat/call/ice', { conversation_id: key });
+            this._iceCache = (r && r.ice) || [{ urls: 'stun:stun.l.google.com:19302' }];
+        } catch (e) { this._iceCache = [{ urls: 'stun:stun.l.google.com:19302' }]; }
+        this._iceCacheFor = key;
         return this._iceCache;
     }
     _getMedia(video) { return navigator.mediaDevices.getUserMedia({ audio: true, video: video ? { width: 1280, height: 720 } : false }); }
@@ -2326,7 +2328,7 @@ export class Chat369App extends Component {
         this.closeMenus();
         try { this._localStream = await this._getMedia(video); }
         catch (e) { this.notify('Camera/mic blocked — calls need HTTPS or localhost.'); return; }
-        const ice = await this._iceConfig();
+        const ice = await this._iceConfig(conv.id);
         this.state.call = { id: null, convId: conv.id, video, status: 'outgoing', caller: true,
             name: conv.title, avatar: conv.avatar_url, muted: false, camOff: false, secs: 0 };
         this._pc = this._createPc(ice);
@@ -2348,7 +2350,7 @@ export class Chat369App extends Component {
         if (!navigator.mediaDevices) { this.rejectCall(); return; }
         try { this._localStream = await this._getMedia(c.video); }
         catch (e) { this.notify('Camera/mic blocked — calls need HTTPS or localhost.'); this.rejectCall(); return; }
-        const ice = await this._iceConfig();
+        const ice = await this._iceConfig(c.convId);
         this._pc = this._createPc(ice);
         this._stopRing(); c.status = 'connecting';
         try { await rpc('/chat/call/accept', { conversation_id: c.convId, call_id: c.id }); } catch (e) {}

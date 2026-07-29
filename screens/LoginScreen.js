@@ -10,7 +10,7 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path, Defs, LinearGradient, Stop } from 'react-native-svg';
-import { COLORS } from '../theme';
+import { COLORS, themed } from '../theme';
 
 const { width: SW } = Dimensions.get('window');
 const HERO_H = SW * (1304 / 1283);     // full composite hero (369 logo baked in)
@@ -78,12 +78,14 @@ export default function LoginScreen({ goConnect }) {
           <Svg width={SW} height={CURVE_H} viewBox={`0 0 ${SW} ${CURVE_H}`}>
             <Defs>
               <LinearGradient id="cg" x1="0" y1="0" x2="1" y2="0">
-                <Stop offset="0" stopColor="#2BB673" />
-                <Stop offset="0.55" stopColor="#17A2C4" />
-                <Stop offset="1" stopColor="#1E6FD9" />
+                <Stop offset="0" stopColor={COLORS.green} />
+                <Stop offset="0.55" stopColor={COLORS.cyan} />
+                <Stop offset="1" stopColor={COLORS.primary} />
               </LinearGradient>
             </Defs>
-            <Path d={CURVE_D} fill="#fff" />
+            {/* The sheet the form sits on — follows the card colour, or the
+                login page keeps a white slab under a dark form. */}
+            <Path d={CURVE_D} fill={COLORS.card} />
             <Path d={CURVE_EDGE} stroke="url(#cg)" strokeWidth={4.5} fill="none" strokeLinecap="round" />
           </Svg>
           <View style={s.cardBody}>
@@ -98,8 +100,8 @@ export default function LoginScreen({ goConnect }) {
             <View style={s.decorLine} />
             <Text style={s.decorTxt}>
               <Text style={{ color: COLORS.navy }}>Connect. </Text>
-              <Text style={{ color: '#1E6FD9' }}>Share. </Text>
-              <Text style={{ color: '#2BB673' }}>Deliver.</Text>
+              <Text style={{ color: COLORS.primary }}>Share. </Text>
+              <Text style={{ color: COLORS.green }}>Deliver.</Text>
             </Text>
             <View style={s.decorLine} />
           </View>
@@ -111,13 +113,13 @@ export default function LoginScreen({ goConnect }) {
           {/* single entry point → Odoo connection / login flow */}
           <TouchableOpacity style={s.loginBtn} onPress={goConnect} activeOpacity={0.9}>
             <Text style={s.loginTxt}>Tap to Enter Login Page</Text>
-            <Ionicons name="arrow-forward" size={20} color="#fff" style={{ marginLeft: 10 }} />
+            <Ionicons name="arrow-forward" size={20} color={COLORS.onPrimary} style={{ marginLeft: 10 }} />
           </TouchableOpacity>
           </View>
 
           {/* blue companion line, drawn on top so it can flow down the right */}
           <Svg style={s.curveLine2} width={SW} height={68} viewBox={`0 0 ${SW} 68`} pointerEvents="none">
-            <Path d={CURVE_EDGE2} stroke="#1E6FD9" strokeWidth={2.5} fill="none" strokeLinecap="round" opacity={0.85} />
+            <Path d={CURVE_EDGE2} stroke={COLORS.primary} strokeWidth={2.5} fill="none" strokeLinecap="round" opacity={0.85} />
           </Svg>
         </Animated.View>
       </ScrollView>
@@ -125,16 +127,16 @@ export default function LoginScreen({ goConnect }) {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#EEF2FB' },
+const s = themed((C) => ({
+  root: { flex: 1, backgroundColor: COLORS.shellAlt },
 
-  statusPad: { height: TOP, backgroundColor: '#EEF2FB' },
+  statusPad: { height: TOP, backgroundColor: COLORS.shellAlt },
   heroWrap: { width: SW, height: HERO_H },
   hero: { width: SW, height: HERO_H },
 
   card: { flex: 1, marginTop: -CARD_OVERLAP, backgroundColor: 'transparent' },
   cardBody: {
-    flex: 1, backgroundColor: '#fff', marginTop: -8,
+    flex: 1, backgroundColor: COLORS.card, marginTop: -8,
     paddingHorizontal: 24, paddingTop: 18, paddingBottom: BOTTOM_PAD,
   },
   curveLine2: { position: 'absolute', top: 0, left: 0 },
@@ -145,19 +147,19 @@ const s = StyleSheet.create({
     width: SW * 0.7, height: SW * 0.42, opacity: 0.06,
   },
 
-  welcomeTo: { fontSize: 14.5, color: COLORS.ink, fontWeight: '600', textAlign: 'center' },
-  welcomeBig: { fontSize: 23, fontWeight: '900', color: COLORS.navy, marginTop: 1, textAlign: 'center' },
+  welcomeTo: { fontSize: 14.5, color: C.ink, fontWeight: '600', textAlign: 'center' },
+  welcomeBig: { fontSize: 23, fontWeight: '900', color: C.navy, marginTop: 1, textAlign: 'center' },
 
   decorRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 8, marginBottom: 14 },
-  decorLine: { width: 26, height: 1.5, backgroundColor: '#CBD6E6', borderRadius: 1 },
+  decorLine: { width: 26, height: 1.5, backgroundColor: COLORS.line, borderRadius: 1 },
   decorTxt: { fontSize: 14, fontWeight: '800' },
 
-  tagline: { fontSize: 14, color: COLORS.muted, lineHeight: 21, marginBottom: 22 },
+  tagline: { fontSize: 14, color: C.muted, lineHeight: 21, marginBottom: 22 },
 
   loginBtn: {
-    flexDirection: 'row', backgroundColor: COLORS.primary, borderRadius: 13, height: 54,
+    flexDirection: 'row', backgroundColor: C.primary, borderRadius: 13, height: 54,
     alignItems: 'center', justifyContent: 'center',
-    shadowColor: COLORS.primary, shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 6 }, elevation: 5,
+    shadowColor: C.primary, shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 6 }, elevation: 5,
   },
-  loginTxt: { color: '#fff', fontSize: 16.5, fontWeight: '800', letterSpacing: 0.3 },
-});
+  loginTxt: { color: COLORS.onPrimary, fontSize: 16.5, fontWeight: '800', letterSpacing: 0.3 },
+}));

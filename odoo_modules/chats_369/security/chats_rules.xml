@@ -40,5 +40,109 @@
             <field name="perm_unlink" eval="False"/>
         </record>
 
+        <!-- ============================================================
+             The models below carry base.group_user ACLs in
+             ir.model.access.csv but had NO record rule, so every internal
+             user could read and write every other user's rows through
+             plain ORM / XML-RPC / a backend call_kw. Lists, nicknames and
+             poll votes are documented as private to their owner; without
+             these they were not.
+
+             The controllers are unaffected: they all run sudo(), which
+             bypasses record rules, and they already do their own ownership
+             checks. So this closes non-sudo access without changing any
+             API behaviour.
+             ============================================================ -->
+
+        <record id="rule_chat_list_owner" model="ir.rule">
+            <field name="name">369Chats: only your own lists</field>
+            <field name="model_id" ref="model_chat_list"/>
+            <field name="domain_force">[('owner_user_id', '=', user.id)]</field>
+            <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
+        <record id="rule_chat_nickname_owner" model="ir.rule">
+            <field name="name">369Chats: only your own nicknames</field>
+            <field name="model_id" ref="model_chat_nickname"/>
+            <field name="domain_force">[('owner_user_id', '=', user.id)]</field>
+            <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
+        <!-- A vote is secret by design; tallies are computed under sudo in
+             _serialize_poll, so restricting this does not affect results. -->
+        <record id="rule_chat_poll_vote_owner" model="ir.rule">
+            <field name="name">369Chats: only your own poll votes</field>
+            <field name="model_id" ref="model_chat_poll_vote"/>
+            <field name="domain_force">[('user_id', '=', user.id)]</field>
+            <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
+        <record id="rule_chat_poll_member" model="ir.rule">
+            <field name="name">369Chats: only polls in your conversations</field>
+            <field name="model_id" ref="model_chat_poll"/>
+            <field name="domain_force">[('message_id.conversation_id.member_ids.user_id', '=', user.id)]</field>
+            <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
+        <record id="rule_chat_poll_option_member" model="ir.rule">
+            <field name="name">369Chats: only poll options in your conversations</field>
+            <field name="model_id" ref="model_chat_poll_option"/>
+            <field name="domain_force">[('poll_id.message_id.conversation_id.member_ids.user_id', '=', user.id)]</field>
+            <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
+        <record id="rule_chat_reaction_member" model="ir.rule">
+            <field name="name">369Chats: only reactions in your conversations</field>
+            <field name="model_id" ref="model_chat_message_reaction"/>
+            <field name="domain_force">[('message_id.conversation_id.member_ids.user_id', '=', user.id)]</field>
+            <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
+        <record id="rule_chat_call_party" model="ir.rule">
+            <field name="name">369Chats: only your own calls</field>
+            <field name="model_id" ref="model_chat_call"/>
+            <field name="domain_force">['|', ('caller_id', '=', user.id), ('callee_id', '=', user.id)]</field>
+            <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
+        <record id="rule_chat_call_schedule_party" model="ir.rule">
+            <field name="name">369Chats: only calls you organise or are invited to</field>
+            <field name="model_id" ref="model_chat_call_schedule"/>
+            <field name="domain_force">['|', ('organizer_id', '=', user.id), ('invitee_ids', 'in', user.id)]</field>
+            <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
     </data>
 </odoo>

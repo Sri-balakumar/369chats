@@ -11,7 +11,7 @@ import { StatusBar } from 'expo-status-bar';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Defs, LinearGradient as SvgGrad, Stop as SvgStop, Rect as SvgRect } from 'react-native-svg';
-import { COLORS } from '../theme';
+import { COLORS, themed } from '../theme';
 import * as odooApi from '../api/odooApi';
 import * as session from '../api/session';
 import { createLogger } from '../api/logger';
@@ -230,7 +230,7 @@ export default function ConnectScreen({ onLogin, goBack, visible = true }) {
             <Ionicons name="chevron-down" size={26} color={COLORS.navy} />
           </TouchableOpacity>
           <View style={s.heroBadge}>
-            <Ionicons name="shield-checkmark" size={28} color="#fff" />
+            <Ionicons name="shield-checkmark" size={28} color={COLORS.onPrimary} />
           </View>
           <Text style={s.heroTitle}>Welcome back</Text>
           <Text style={s.heroSub}>Sign in to your Alphalize 369Chats workspace</Text>
@@ -244,7 +244,7 @@ export default function ConnectScreen({ onLogin, goBack, visible = true }) {
           <View style={s.stepRow}>
             <View style={[s.badge, !!serverUrl.trim() && databases.length > 0 && s.badgeDone]}>
               {serverUrl.trim() && databases.length > 0
-                ? <Ionicons name="checkmark" size={14} color="#fff" />
+                ? <Ionicons name="checkmark" size={14} color={COLORS.onPrimary} />
                 : <Text style={s.badgeTxt}>1</Text>}
             </View>
             <Text style={s.stepTitle}>Server URL</Text>
@@ -278,7 +278,7 @@ export default function ConnectScreen({ onLogin, goBack, visible = true }) {
           {/* Step 2 — Database */}
           <View style={s.stepRow}>
             <View style={[s.badge, !!selectedDb && s.badgeDone]}>
-              {selectedDb ? <Ionicons name="checkmark" size={14} color="#fff" /> : <Text style={s.badgeTxt}>2</Text>}
+              {selectedDb ? <Ionicons name="checkmark" size={14} color={COLORS.onPrimary} /> : <Text style={s.badgeTxt}>2</Text>}
             </View>
             <Text style={s.stepTitle}>Database</Text>
           </View>
@@ -387,10 +387,10 @@ export default function ConnectScreen({ onLogin, goBack, visible = true }) {
             activeOpacity={0.9}
             disabled={busy}
           >
-            {loadingAuth ? <ActivityIndicator color="#fff" /> : (
+            {loadingAuth ? <ActivityIndicator color={COLORS.onPrimary} /> : (
               <>
                 <Text style={s.loginTxt}>Login</Text>
-                <Ionicons name="arrow-forward" size={20} color="#fff" style={{ marginLeft: 10 }} />
+                <Ionicons name="arrow-forward" size={20} color={COLORS.onPrimary} style={{ marginLeft: 10 }} />
               </>
             )}
           </TouchableOpacity>
@@ -404,16 +404,16 @@ export default function ConnectScreen({ onLogin, goBack, visible = true }) {
   );
 }
 
-const s = StyleSheet.create({
+const s = themed((C) => ({
   // Bottom-sheet: the form panel is pinned to the bottom and takes most of the
   // height; the blurred welcome shows above it.
   sheetRoot: { flex: 1, justifyContent: 'flex-end' },
   sheet: {
-    maxHeight: SH * 0.92, backgroundColor: '#fff',
+    maxHeight: SH * 0.92, backgroundColor: COLORS.card,
     borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: 'hidden',
-    shadowColor: '#0B2A6B', shadowOpacity: 0.25, shadowRadius: 24, shadowOffset: { width: 0, height: -6 }, elevation: 24,
+    shadowColor: COLORS.navy, shadowOpacity: 0.25, shadowRadius: 24, shadowOffset: { width: 0, height: -6 }, elevation: 24,
   },
-  grabber: { alignSelf: 'center', width: 44, height: 5, borderRadius: 3, backgroundColor: '#D5DCE8', marginTop: 10, marginBottom: 2 },
+  grabber: { alignSelf: 'center', width: 44, height: 5, borderRadius: 3, backgroundColor: COLORS.line, marginTop: 10, marginBottom: 2 },
 
   // Form card wrapper (plain — the sheet itself is the white surface)
   glassWrap: { marginHorizontal: 0, borderRadius: 0 },
@@ -425,36 +425,36 @@ const s = StyleSheet.create({
   },
   heroBack: {
     position: 'absolute', right: 12, top: 4, width: 38, height: 38, borderRadius: 19,
-    backgroundColor: '#F1F5FB', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: COLORS.slate50, alignItems: 'center', justifyContent: 'center',
   },
   heroBadge: {
-    width: 60, height: 60, borderRadius: 20, backgroundColor: COLORS.primary,
+    width: 60, height: 60, borderRadius: 20, backgroundColor: C.primary,
     alignItems: 'center', justifyContent: 'center', marginBottom: 12,
-    shadowColor: COLORS.primary, shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 5,
+    shadowColor: C.primary, shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 5,
   },
-  heroTitle: { fontSize: 24, fontWeight: '900', color: COLORS.navy, letterSpacing: 0.3 },
-  heroSub: { fontSize: 13.5, color: COLORS.muted, marginTop: 5, textAlign: 'center', lineHeight: 19 },
+  heroTitle: { fontSize: 24, fontWeight: '900', color: C.navy, letterSpacing: 0.3 },
+  heroSub: { fontSize: 13.5, color: C.muted, marginTop: 5, textAlign: 'center', lineHeight: 19 },
 
   body: { paddingHorizontal: 24, paddingTop: 4 },
 
   stepRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 18, marginBottom: 10 },
-  badge: { width: 22, height: 22, borderRadius: 11, backgroundColor: COLORS.primary, alignItems: 'center', justifyContent: 'center' },
-  badgeDone: { backgroundColor: COLORS.green },
-  badgeTxt: { color: '#fff', fontSize: 12, fontWeight: '800' },
-  stepTitle: { fontSize: 15, fontWeight: '800', color: COLORS.navy },
-  stepOk: { fontSize: 12, fontWeight: '700', color: COLORS.green, marginLeft: 'auto' },
+  badge: { width: 22, height: 22, borderRadius: 11, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
+  badgeDone: { backgroundColor: C.green },
+  badgeTxt: { color: COLORS.onPrimary, fontSize: 12, fontWeight: '800' },
+  stepTitle: { fontSize: 15, fontWeight: '800', color: C.navy },
+  stepOk: { fontSize: 12, fontWeight: '700', color: C.green, marginLeft: 'auto' },
 
   field: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#F5F8FD',
-    borderWidth: 1.5, borderColor: '#E7ECF3', borderRadius: 14, paddingHorizontal: 15, height: 56,
+    flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.slate50,
+    borderWidth: 1.5, borderColor: COLORS.line, borderRadius: 14, paddingHorizontal: 15, height: 56,
     marginBottom: 12,   // gap between stacked fields (username / password)
   },
-  fieldErr: { borderColor: COLORS.red, backgroundColor: COLORS.redBg },
+  fieldErr: { borderColor: C.red, backgroundColor: C.redBg },
   fIcon: { marginRight: 10 },
-  input: { flex: 1, fontSize: 15.5, color: COLORS.ink, height: '100%', textAlignVertical: 'center' },
+  input: { flex: 1, fontSize: 15.5, color: C.ink, height: '100%', textAlignVertical: 'center' },
   dbSelector: {},
 
-  errTxt: { color: COLORS.red, fontSize: 12.5, marginTop: 5, marginLeft: 2 },
+  errTxt: { color: C.red, fontSize: 12.5, marginTop: 5, marginLeft: 2 },
 
   // DB selector wrapper keeps the field's gap; high zIndex so the floating
   // dropdown renders above the Credentials fields below it.
@@ -467,27 +467,27 @@ const s = StyleSheet.create({
   },
   dbSheet: {
     width: '100%', maxWidth: 440, maxHeight: '75%',
-    backgroundColor: '#fff', borderRadius: 16, overflow: 'hidden',
-    shadowColor: '#0B2A6B', shadowOpacity: 0.25, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 20,
+    backgroundColor: COLORS.card, borderRadius: 16, overflow: 'hidden',
+    shadowColor: COLORS.navy, shadowOpacity: 0.25, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 20,
   },
   dbSheetHead: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#EEF1F6',
+    paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: COLORS.slate50,
   },
-  dbSheetTitle: { fontSize: 16, fontWeight: '800', color: COLORS.ink },
+  dbSheetTitle: { fontSize: 16, fontWeight: '800', color: C.ink },
   dbSheetList: { flexGrow: 0, flexShrink: 1 },
   dropItem: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#F0F3F8',
+    paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: COLORS.slate50,
   },
-  dropItemActive: { backgroundColor: '#EEF3FF' },
-  dropTxt: { fontSize: 15, color: COLORS.ink },
-  dropTxtActive: { color: COLORS.primary, fontWeight: '800' },
+  dropItemActive: { backgroundColor: COLORS.slate50 },
+  dropTxt: { fontSize: 15, color: C.ink },
+  dropTxtActive: { color: C.primary, fontWeight: '800' },
 
   loginBtn: {
-    flexDirection: 'row', backgroundColor: COLORS.primary, borderRadius: 13, height: 54,
+    flexDirection: 'row', backgroundColor: C.primary, borderRadius: 13, height: 54,
     alignItems: 'center', justifyContent: 'center', marginTop: 18, marginBottom: 6,
-    shadowColor: COLORS.primary, shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 6 }, elevation: 5,
+    shadowColor: C.primary, shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 6 }, elevation: 5,
   },
-  loginTxt: { color: '#fff', fontSize: 16.5, fontWeight: '800', letterSpacing: 0.3 },
-});
+  loginTxt: { color: COLORS.onPrimary, fontSize: 16.5, fontWeight: '800', letterSpacing: 0.3 },
+}));

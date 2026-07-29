@@ -18,7 +18,8 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, RADIUS, SPACING } from '../../theme';
+import { COLORS, RADIUS, SPACING, themed } from '../../theme';
+import CropEditor from './CropEditor';
 import useKeyboardHeight from '../../utils/useKeyboardHeight';
 import { createLogger } from '../../api/logger';
 
@@ -60,7 +61,7 @@ export default function MediaPreview({ visible, items, onCancel, onSend, sending
   const [viewOnce, setViewOnce] = useState(false);
   const [quality, setQuality] = useState('standard');
   const [busy, setBusy] = useState(false);
-  const [cropOpen, setCropOpen] = useState(false);
+  const [freeCrop, setFreeCrop] = useState(null);   // { width, height } while editing
   const captionRef = useRef(null);
 
   // Seed from the picked assets whenever the tray opens.
@@ -81,19 +82,27 @@ export default function MediaPreview({ visible, items, onCancel, onSend, sending
   const cur = list[idx] || null;
 
   // Re-derive the current item from its original at the given crop + quality.
+  //
+  // `cropKey` is either a preset key ('square') or an explicit pixel box from the
+  // free-form editor. Both re-derive from originalUri, never from the last
+  // render, so cropping twice doesn't crop a crop.
   const applyTransforms = useCallback(async (item, cropKey, qualityKey) => {
     if (item.isVideo) return item.originalUri;   // stills only
     const actions = [];
-    const preset = CROPS.find((c) => c.key === cropKey);
-    if (preset?.ratio) {
-      // Dimensions are needed to centre the crop box; the picker supplies them,
-      // and a cheap manipulate with no actions reports them when it doesn't.
-      let { width, height } = item;
-      if (!width || !height) {
-        const probe = await ImageManipulator.manipulateAsync(item.originalUri, [], {});
-        width = probe.width; height = probe.height;
+    if (cropKey && typeof cropKey === 'object') {
+      actions.push({ crop: cropKey });            // free-form box, already in px
+    } else {
+      const preset = CROPS.find((c) => c.key === cropKey);
+      if (preset?.ratio) {
+        // Dimensions are needed to centre the crop box; the picker supplies them,
+        // and a cheap manipulate with no actions reports them when it doesn't.
+        let { width, height } = item;
+        if (!width || !height) {
+          const probe = await ImageManipulator.manipulateAsync(item.originalUri, [], {});
+          width = probe.width; height = probe.height;
+        }
+        actions.push({ crop: centreCrop(width, height, preset.ratio) });
       }
-      actions.push({ crop: centreCrop(width, height, preset.ratio) });
     }
     const q = QUALITY[qualityKey];
     actions.push({ resize: { width: q.maxDim } });
@@ -105,7 +114,6 @@ export default function MediaPreview({ visible, items, onCancel, onSend, sending
   }, []);
 
   const setCrop = useCallback(async (cropKey) => {
-    setCropOpen(false);
     if (!cur || cur.isVideo) return;
     setBusy(true);
     try {
@@ -116,6 +124,20 @@ export default function MediaPreview({ visible, items, onCancel, onSend, sending
       Alert.alert('Could not crop', e?.message || 'Please try again.');
     } finally { setBusy(false); }
   }, [cur, idx, quality, applyTransforms]);
+
+  // Free-form editor needs the SOURCE dimensions, which the picker doesn't always
+  // supply — probe once when opening rather than on every drag.
+  const openFreeCrop = useCallback(async () => {
+    if (!cur || cur.isVideo) return;
+    let { width, height } = cur;
+    if (!width || !height) {
+      try {
+        const probe = await ImageManipulator.manipulateAsync(cur.originalUri, [], {});
+        width = probe.width; height = probe.height;
+      } catch (e) { log.warn('probe failed', e?.message); }
+    }
+    setFreeCrop({ width, height });
+  }, [cur]);
 
   // Quality applies to EVERY item, as it does in WhatsApp — it is a send setting,
   // not a per-photo edit.
@@ -167,7 +189,7 @@ export default function MediaPreview({ visible, items, onCancel, onSend, sending
       <View style={[s.root, { paddingTop: insets.top }]}>
         <View style={s.head}>
           <TouchableOpacity onPress={onCancel} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Ionicons name="close" size={26} color="#fff" />
+            <Ionicons name="close" size={26} color={COLORS.onOverlay} />
           </TouchableOpacity>
           <Text style={s.counter}>{idx + 1} / {list.length}</Text>
           <TouchableOpacity
@@ -175,8 +197,8 @@ export default function MediaPreview({ visible, items, onCancel, onSend, sending
             onPress={() => setViewOnce((v) => !v)}
             activeOpacity={0.8}
           >
-            <Ionicons name={viewOnce ? 'eye' : 'eye-outline'} size={15} color={viewOnce ? '#fff' : 'rgba(255,255,255,0.75)'} />
-            <Text style={[s.voTxt, viewOnce && { color: '#fff' }]}>View once</Text>
+            <Ionicons name={viewOnce ? 'eye' : 'eye-outline'} size={15} color={viewOnce ? COLORS.onOverlay : 'rgba(255,255,255,0.75)'} />
+            <Text style={[s.voTxt, viewOnce && { color: COLORS.onOverlay }]}>View once</Text>
           </TouchableOpacity>
         </View>
 
@@ -184,51 +206,42 @@ export default function MediaPreview({ visible, items, onCancel, onSend, sending
           {cur.isVideo ? (
             <View style={s.videoWrap}>
               <Image source={{ uri: cur.uri }} style={s.stageImg} resizeMode="contain" />
-              <View style={s.playBadge}><Ionicons name="play" size={26} color="#fff" /></View>
+              <View style={s.playBadge}><Ionicons name="play" size={26} color={COLORS.onOverlay} /></View>
             </View>
           ) : (
             <Image source={{ uri: cur.uri }} style={s.stageImg} resizeMode="contain" />
           )}
           {busy && (
-            <View style={s.busy}><ActivityIndicator color="#fff" size="large" /></View>
+            <View style={s.busy}><ActivityIndicator color={COLORS.onOverlay} size="large" /></View>
           )}
         </View>
 
         {/* Edit tools. Hidden for video — neither crop nor re-encode applies. */}
         {!cur.isVideo && (
           <View style={s.tools}>
-            <TouchableOpacity style={s.tool} onPress={() => setCropOpen((v) => !v)} disabled={busy}>
-              <Ionicons name="crop-outline" size={19} color="#fff" />
-              <Text style={s.toolTxt}>{CROPS.find((c) => c.key === cur.crop)?.label || 'Crop'}</Text>
+            {/* Straight into the 4-corner editor — the ratio presets live inside
+                it, so the old "tap Crop, then pick a preset" step was a detour
+                that hid the free crop behind a second tap. */}
+            <TouchableOpacity style={s.tool} onPress={openFreeCrop} disabled={busy}>
+              <Ionicons name="crop-outline" size={19} color={COLORS.onOverlay} />
+              <Text style={s.toolTxt}>Crop</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[s.tool, quality === 'hd' && s.toolOn]}
               onPress={() => setQualityAll(quality === 'hd' ? 'standard' : 'hd')}
               disabled={busy}
             >
-              <Ionicons name="sparkles-outline" size={18} color="#fff" />
+              <Ionicons name="sparkles-outline" size={18} color={COLORS.onOverlay} />
               <Text style={s.toolTxt}>{QUALITY[quality].label}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={s.tool} onPress={removeCurrent} disabled={busy}>
-              <Ionicons name="trash-outline" size={19} color="#fff" />
+              <Ionicons name="trash-outline" size={19} color={COLORS.onOverlay} />
             </TouchableOpacity>
           </View>
         )}
 
-        {cropOpen && !cur.isVideo && (
-          <View style={s.cropRow}>
-            {CROPS.map((c) => (
-              <TouchableOpacity
-                key={c.key}
-                style={[s.cropChip, cur.crop === c.key && s.cropChipOn]}
-                onPress={() => setCrop(c.key)}
-                disabled={busy}
-              >
-                <Text style={[s.cropTxt, cur.crop === c.key && { color: '#fff' }]}>{c.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
+        {/* (The preset chip row moved INTO CropEditor — Free / 1:1 / 4:5 / 16:9
+            sit under the live crop box there, where you can see their effect.) */}
 
         <View style={[s.bottom, { paddingBottom: (kb > 0 ? kb + insets.bottom : insets.bottom) + SPACING.md }]}>
           <View style={s.capRow}>
@@ -243,8 +256,8 @@ export default function MediaPreview({ visible, items, onCancel, onSend, sending
             />
             <TouchableOpacity style={s.send} onPress={send} disabled={busy || sending} activeOpacity={0.85}>
               {busy || sending
-                ? <ActivityIndicator color="#fff" size="small" />
-                : <Ionicons name="send" size={19} color="#fff" />}
+                ? <ActivityIndicator color={COLORS.onOverlay} size="small" />
+                : <Ionicons name="send" size={19} color={COLORS.onOverlay} />}
             </TouchableOpacity>
           </View>
 
@@ -259,7 +272,7 @@ export default function MediaPreview({ visible, items, onCancel, onSend, sending
                 >
                   <Image source={{ uri: it.uri }} style={s.thumbImg} />
                   {it.isVideo && (
-                    <View style={s.thumbVid}><Ionicons name="play" size={10} color="#fff" /></View>
+                    <View style={s.thumbVid}><Ionicons name="play" size={10} color={COLORS.onOverlay} /></View>
                   )}
                 </TouchableOpacity>
               ))}
@@ -267,23 +280,42 @@ export default function MediaPreview({ visible, items, onCancel, onSend, sending
           )}
         </View>
       </View>
+
+      {/* Free-form crop, over the tray. Applying re-derives from the original,
+          so the user can reopen and re-crop without compounding. */}
+      {!!freeCrop && !!cur && (
+        <Modal visible transparent={false} animationType="slide" onRequestClose={() => setFreeCrop(null)}>
+          <CropEditor
+            uri={cur.originalUri}
+            width={freeCrop.width}
+            height={freeCrop.height}
+            busy={busy}
+            index={idx}
+            count={list.length}
+            onPrev={() => setIdx((i) => (i - 1 + list.length) % list.length)}
+            onNext={() => setIdx((i) => (i + 1) % list.length)}
+            onCancel={() => setFreeCrop(null)}
+            onApply={(pxBox) => { setFreeCrop(null); setCrop(pxBox || 'original'); }}
+          />
+        </Modal>
+      )}
     </Modal>
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#0B1220' },
+const s = themed((C) => ({
+  root: { flex: 1, backgroundColor: COLORS.editorBg },
   head: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: SPACING.screen, paddingVertical: SPACING.md,
   },
-  counter: { color: '#fff', fontSize: 15, fontWeight: '800' },
+  counter: { color: COLORS.onOverlay, fontSize: 15, fontWeight: '800' },
   voBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     borderRadius: RADIUS.pill, borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)',
     paddingHorizontal: 10, paddingVertical: 5,
   },
-  voBtnOn: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  voBtnOn: { backgroundColor: C.primary, borderColor: C.primary },
   voTxt: { color: 'rgba(255,255,255,0.75)', fontSize: 11.5, fontWeight: '700' },
 
   stage: { flex: 1, alignItems: 'center', justifyContent: 'center' },
@@ -301,16 +333,20 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: RADIUS.pill,
     paddingHorizontal: 14, paddingVertical: 8,
   },
-  toolOn: { backgroundColor: COLORS.primary },
-  toolTxt: { color: '#fff', fontSize: 12.5, fontWeight: '700' },
+  toolOn: { backgroundColor: C.primary },
+  toolTxt: { color: COLORS.onOverlay, fontSize: 12.5, fontWeight: '700' },
 
   cropRow: { flexDirection: 'row', justifyContent: 'center', gap: SPACING.sm, paddingBottom: SPACING.md },
   cropChip: {
     borderRadius: RADIUS.pill, borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)',
     paddingHorizontal: 13, paddingVertical: 6,
   },
-  cropChipOn: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  cropChipOn: { backgroundColor: C.primary, borderColor: C.primary },
   cropTxt: { color: 'rgba(255,255,255,0.8)', fontSize: 12, fontWeight: '700' },
+  cropChipFree: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: COLORS.onOverlay, borderColor: COLORS.onOverlay,
+  },
 
   bottom: { paddingHorizontal: SPACING.md },
   capRow: { flexDirection: 'row', alignItems: 'flex-end', gap: SPACING.sm },
@@ -318,10 +354,10 @@ const s = StyleSheet.create({
     flex: 1, minHeight: 46, maxHeight: 110,
     backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: RADIUS.sheet,
     paddingHorizontal: SPACING.screen, paddingTop: 12, paddingBottom: 12,
-    color: '#fff', fontSize: 15,
+    color: COLORS.onOverlay, fontSize: 15,
   },
   send: {
-    width: 46, height: 46, borderRadius: 23, backgroundColor: COLORS.primary,
+    width: 46, height: 46, borderRadius: 23, backgroundColor: C.primary,
     alignItems: 'center', justifyContent: 'center',
   },
 
@@ -330,10 +366,10 @@ const s = StyleSheet.create({
     width: 52, height: 52, borderRadius: RADIUS.sm, overflow: 'hidden',
     borderWidth: 2, borderColor: 'transparent', backgroundColor: 'rgba(255,255,255,0.1)',
   },
-  thumbOn: { borderColor: COLORS.green },
+  thumbOn: { borderColor: C.green },
   thumbImg: { width: '100%', height: '100%' },
   thumbVid: {
     position: 'absolute', right: 2, bottom: 2,
     backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 6, padding: 2,
   },
-});
+}));

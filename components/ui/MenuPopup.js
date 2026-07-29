@@ -10,7 +10,7 @@ import {
   StyleSheet, ScrollView, Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS, RADIUS, SPACING, TOP } from '../../theme';
+import { COLORS, RADIUS, SPACING, TOP, themed } from '../../theme';
 
 export default function MenuPopup({ visible, onClose, items = [], anchor, width = 232 }) {
   // Sit just under the header row: the status-bar inset plus the 40pt button.
@@ -55,27 +55,28 @@ export default function MenuPopup({ visible, onClose, items = [], anchor, width 
   );
 }
 
-const s = StyleSheet.create({
+const s = themed((C) => ({
   // Barely-there scrim: the menu should feel attached to the header, not modal.
   scrim: { flex: 1, backgroundColor: 'rgba(15,23,42,0.18)' },
   card: {
     position: 'absolute',
-    backgroundColor: '#fff',
-    borderRadius: RADIUS.lg,
-    paddingVertical: 4,
+    backgroundColor: COLORS.card,
+    borderRadius: 16,
+    paddingVertical: 6,
     // A dropdown needs a stronger shadow than a card to read as floating.
     ...Platform.select({
-      android: { elevation: 8 },
+      android: { elevation: 10 },
       default: {
-        shadowColor: '#0F172A', shadowOpacity: 0.22,
-        shadowRadius: 18, shadowOffset: { width: 0, height: 8 },
+        shadowColor: COLORS.slate900, shadowOpacity: 0.26,
+        shadowRadius: 22, shadowOffset: { width: 0, height: 10 },
       },
     }),
   },
   item: {
-    flexDirection: 'row', alignItems: 'center', gap: SPACING.lg,
-    paddingHorizontal: SPACING.screen, paddingVertical: 13,
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.screen,
+    paddingHorizontal: SPACING.lg, paddingVertical: 13,
+    marginHorizontal: 6, borderRadius: RADIUS.md,
   },
   itemFirst: {},
-  label: { flex: 1, fontSize: 14.5, color: COLORS.ink, fontWeight: '600' },
-});
+  label: { flex: 1, fontSize: 14.5, color: C.ink, fontWeight: '600' },
+}));

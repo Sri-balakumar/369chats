@@ -80,6 +80,9 @@ export function normalizeMessage(m, serverBase) {
     body: m.body || '',
     kind: m.kind || 'text',
     deleted: !!m.deleted,
+    // Server-computed: author, not already deleted, and within the 24h unsend
+    // window. Older servers omit it, so fall back to the author check alone.
+    canDeleteAll: m.can_delete_all === undefined ? (!!m.mine && !m.deleted) : !!m.can_delete_all,
     edited: !!m.edited,
     forwarded: !!m.forwarded,
     isMeet: !!m.is_meet,
@@ -688,12 +691,55 @@ export async function groupInvite(conversationId, action = 'get') {
 
 // ─────────────────────────────── google meet ───────────────────────────────
 
-export async function gmeetStatus() {
+// Status is read on every thread open (to label the Meet entry) as well as by the
+// settings panel, so it is memoised briefly. Anything that can change it —
+// saving the config, coming back from the OAuth browser — calls invalidate.
+let gmeetCache = null;   // { at, value }
+const GMEET_TTL = 60000;
+
+export function invalidateGmeetStatus() { gmeetCache = null; }
+
+export async function gmeetStatus({ force = false } = {}) {
+  if (!force && gmeetCache && Date.now() - gmeetCache.at < GMEET_TTL) return gmeetCache.value;
   const res = await call('/chat/gmeet/status');
-  return {
+  const value = {
     connected: !!res.connected, hasCreds: !!res.has_creds, isAdmin: !!res.is_admin,
     triggers: res.triggers || [], scope: res.scope || 'both', adminOnly: !!res.admin_only,
+    // Admin-only fields — the server blanks these for everyone else.
+    clientId: res.client_id || '', baseUrl: res.base_url || '', redirectUri: res.redirect_uri || '',
   };
+  gmeetCache = { at: Date.now(), value };
+  return value;
+}
+
+// Admins only, server-side. `clientSecret` is write-only: the status route never
+// returns it, and the config route only writes it when non-empty — so leaving the
+// field blank keeps whatever is already stored.
+export async function saveGmeetConfig({ clientId, clientSecret, triggers, scope, adminOnly, baseUrl }) {
+  const p = {
+    client_id: clientId || '',
+    triggers: triggers || '',
+    admin_only: !!adminOnly,
+    base_url: baseUrl || '',
+  };
+  // The server ignores anything outside this set, so don't send a bad value.
+  if (['groups', 'direct', 'both'].includes(scope)) p.scope = scope;
+  if (clientSecret) p.client_secret = clientSecret;
+  const res = await call('/chat/gmeet/config', p);
+  invalidateGmeetStatus();
+  return res;
+}
+
+// The redirect URI Google must be given. Mirrors the web client: a base URL typed
+// into the form wins over whatever the server last resolved, so an admin can see
+// the value change before saving.
+export function gmeetRedirectUri(baseUrl, fallback) {
+  const b = (baseUrl || '').trim().replace(/\/+$/, '');
+  return b ? `${b}/chat/gmeet/oauth/callback` : (fallback || '');
+}
+
+export function gmeetOauthStartUrl(serverUrl) {
+  return `${(serverUrl || '').replace(/\/+$/, '')}/chat/gmeet/oauth/start`;
 }
 
 // Posts a message carrying the Meet URL with is_meet set — render it as a
@@ -766,6 +812,19 @@ export function firstUrl(text) {
 // The online window is 45s, so beat faster than that while the app is foregrounded.
 // fetchConversations and fetchMessages also stamp presence as a side effect.
 export function heartbeat() { return call('/chat/heartbeat', {}, 8000); }
+
+// Plain-text transcript of a conversation. /chat/export is type='http', not the
+// JSON-RPC envelope every other call uses, so it is fetched directly — and it
+// needs credentials, like every other authenticated Odoo route here.
+export async function fetchTranscript(conversationId) {
+  const { serverUrl } = await getConnection();
+  if (!serverUrl) throw new ChatError('This device is not set up yet.');
+  const res = await fetch(`${serverUrl}/chat/export/${Number(conversationId)}`, {
+    credentials: 'include',
+  });
+  if (!res.ok) throw new ChatError('Could not export this chat.');
+  return res.text();
+}
 
 export function sendTyping(conversationId, typing = true) {
   return call('/chat/typing', {

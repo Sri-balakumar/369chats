@@ -21,6 +21,8 @@ export { default as PopupModal } from './PopupModal';
 export { default as MenuPopup } from './MenuPopup';
 export { default as SectionCard } from './SectionCard';
 export { default as SelectField } from './SelectField';
+export { default as Switch } from './Switch';
+export { default as ConfirmDialog } from './ConfirmDialog';
 export { default as Accordion, animateNext } from './Accordion';
 export { default as Row } from './Row';
 export { default as Icon } from './Icon';

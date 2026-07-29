@@ -7,7 +7,7 @@
 // with no dashboard in front of it. Adding a screen is an import, a branch below,
 // and an entry in the chat list's ⋮ menu.
 import React, { useState, useEffect, useRef } from 'react';
-import { BackHandler, AppState } from 'react-native';
+import { BackHandler, AppState, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import Constants from 'expo-constants';
@@ -25,14 +25,18 @@ import ChatListScreen from './screens/ChatListScreen';
 import ChatThreadScreen from './screens/ChatThreadScreen';
 import NewChatScreen from './screens/NewChatScreen';
 import ContactInfoScreen from './screens/ContactInfoScreen';
+import CallsScreen from './screens/CallsScreen';
+import BottomTabs from './components/chat/BottomTabs';
 import ChatSearchScreen from './screens/ChatSearchScreen';
 import ChatMediaScreen from './screens/ChatMediaScreen';
 import StarredScreen from './screens/StarredScreen';
 import GroupManageScreen from './screens/GroupManageScreen';
 import ChatSettingsScreen from './screens/ChatSettingsScreen';
+import GmeetSettingsScreen from './screens/GmeetSettingsScreen';
 import AppLoginScreen from './screens/AppLoginScreen';
 import AlarmScreen from './screens/AlarmScreen';
 import ScreenTransition from './components/ScreenTransition';
+import { ThemeProvider, useTheme } from './theme';
 import { scheduleTaskAlarm, stopAlarm } from './services/alarm';
 
 // notifee is a native module, present only after the one-time rebuild. Load it
@@ -49,6 +53,7 @@ import * as session from './api/session';
 import { createLogger } from './api/logger';
 import { registerForPushAsync, unregisterPush } from './services/push';
 import realtime from './services/chatRealtime';
+import { loadDrafts } from './services/drafts';
 
 const log = createLogger('App');
 
@@ -93,11 +98,22 @@ Notifications.setNotificationHandler({
 export default function App() {
   return (
     <SafeAreaProvider>
-      {/* One app-wide status bar: dark icons on the transparent (edge-to-edge)
-          bar, so every screen's light background shows through — no black strip. */}
+      <ThemeProvider>
+        <Chrome />
+      </ThemeProvider>
+    </SafeAreaProvider>
+  );
+}
+
+function Chrome() {
+  return (
+    <>
+      {/* One app-wide status bar over the transparent (edge-to-edge) bar, so
+          every screen's own background shows through — no black strip. The app
+          is light-only, so the icons are always dark. */}
       <StatusBar style="dark" />
       <AppInner />
-    </SafeAreaProvider>
+    </>
   );
 }
 
@@ -109,6 +125,14 @@ function AppInner() {
   // Post-login route. 'chats' is the root, the way WhatsApp opens on the
   // conversation list — there is no dashboard in front of it.
   const [appScreen, setAppScreen] = useState('chats');
+  // Google Meet settings is reachable from two places; remember which, so back
+  // returns where the user came from rather than always to Chat settings.
+  const [gmeetFrom, setGmeetFrom] = useState('chatsettings');
+  // A quote carried from a group into a 1:1 by 'Reply privately'. Consumed by the
+  // thread on mount, then cleared so revisiting the chat doesn't re-seed it.
+  const [pendingQuote, setPendingQuote] = useState(null);
+  // Drives the remount key below, so switching accent repaints module-level styles.
+  const { key: themeKey } = useTheme();
   // Id a notification tap wants the destination screen to focus/flash. One slot:
   // only one screen is open at a time, and it clears on the way back to the root
   // so a stale id can't make an unrelated row flash on the next visit. Nothing
@@ -121,6 +145,10 @@ function AppInner() {
   // The conversation ChatThreadScreen is showing. Held here rather than in the
   // list screen so a notification tap can open a thread directly.
   const [activeChat, setActiveChat] = useState(null);
+  // Total unread across every chat, for the Chats tab badge. The realtime engine
+  // already polls the conversation list, so this piggybacks on that rather than
+  // adding a second timer — /chat/unread_total is an N+1 query server-side.
+  const [chatUnread, setChatUnread] = useState(0);
   const [provisioned, setProvisioned] = useState(false); // device set up (server URL saved)
   const [forceSetup, setForceSetup] = useState(false);   // show Odoo device-setup over the app login
 
@@ -131,21 +159,43 @@ function AppInner() {
   const userRef = useRef(user);
   useEffect(() => { userRef.current = user; }, [user]);
 
+  // Warm the draft cache once, so the chat list and composer can read drafts
+  // synchronously during render.
+  useEffect(() => { loadDrafts(); }, []);
+
+  // Chats badge: the realtime engine emits the whole conversation list on every
+  // poll, so summing unreadCount there costs nothing extra.
+  useEffect(() => {
+    if (!user) return undefined;
+    return realtime.subscribe((event, data) => {
+      if (event !== 'conversations') return;
+      setChatUnread((data.conversations || []).reduce((n, c) => n + (c.unreadCount || 0), 0));
+    });
+  }, [user?.uid]);
+
   // Route a notification tap to a screen, focusing the record it names.
   //
   // A cold-start tap can land before the session is restored, so it queues in a
-  // ref and flushes once `user` exists. When chat lands, this is the seam: read
-  // `data.chat_id` and route to the thread screen alongside whatever else ships.
+  // ref and flushes once `user` exists.
+  //
+  // Chat pushes carry `chat_id` plus event 'chat_message' / 'chat_mention'
+  // (chat_api.py _push_chat / _notify_mentions). Those must open the THREAD —
+  // every tap used to land on the KPI notification feed regardless, so tapping a
+  // message notification never took you to the message.
   const routeToNotification = (data) => {
     if (!data) return;
-    const dest = 'notifications';
-    const id = data.id ?? null;
-    if (userRef.current) {
-      setFocusId(id);
-      setAppScreen(dest);
-    } else {
-      pendingTapRef.current = data;
+    if (!userRef.current) { pendingTapRef.current = data; return; }
+
+    const chatId = Number(data.chat_id || 0);
+    if (chatId) {
+      // Title is unknown here; the thread fetches the real conversation on mount.
+      setActiveChat({ id: chatId, title: data.title || 'Chat' });
+      setFocusId(null);
+      setAppScreen('chat');
+      return;
     }
+    setFocusId(data.id ?? null);
+    setAppScreen('notifications');
   };
 
   // A task alarm (notifee) carries data.alarm==='1' + kpi_id + task_name and the
@@ -218,8 +268,11 @@ function AppInner() {
         setAppScreen(activeChat ? 'chat' : 'chats'); return true;
       }
       if (user && appScreen === 'chatsettings') { setAppScreen('chats'); return true; }
-      if (user && appScreen === 'chat') { setActiveChat(null); setAppScreen('chats'); return true; }
-      if (user && appScreen === 'newchat') { setAppScreen('chats'); return true; }
+      if (user && appScreen === 'gmeetsettings') { setAppScreen(gmeetFrom || 'chatsettings'); return true; }
+      // Calls is a root tab: back goes to Chats, the primary root.
+      if (user && appScreen === 'calls') { setAppScreen('chats'); return true; }
+      if (user && appScreen === 'chat') { setActiveChat(null); setFocusId(null); setAppScreen('chats'); return true; }
+      if (user && (appScreen === 'newchat' || appScreen === 'newgroup')) { setAppScreen('chats'); return true; }
       // Everything else (notifications, admin screens) returns to the chat list,
       // which is now the root. Falling through on 'chats' itself is what lets
       // Android close the app — returning true there would trap the user.
@@ -232,7 +285,7 @@ function AppInner() {
     };
     const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
     return () => sub.remove();
-  }, [user, appScreen, screen, forceSetup, activeChat]);
+  }, [user, appScreen, screen, forceSetup, activeChat, gmeetFrom]);
 
   // Register this device for push once logged in (needs the session cookie so
   // the token binds to the right user server-side).
@@ -358,12 +411,22 @@ function AppInner() {
         return (
           <ChatThreadScreen
             conversation={activeChat}
+            // Only set when arriving from a search hit; cleared on the way out so
+            // a stale id can't re-jump the next time this chat is opened.
+            focusMessageId={focusId}
             // Back goes to the list, not Home — the list is where they came from.
-            onBack={() => { setActiveChat(null); setAppScreen('chats'); }}
+            onBack={() => { setActiveChat(null); setFocusId(null); setPendingQuote(null); setAppScreen('chats'); }}
             onOpenInfo={() => setAppScreen('chatinfo')}
             onOpenSearch={() => setAppScreen('chatsearch')}
             onOpenMedia={() => setAppScreen('chatmedia')}
             onOpenStarred={() => setAppScreen('starred')}
+            onOpenGmeet={() => { setGmeetFrom('chat'); setAppScreen('gmeetsettings'); }}
+            initialQuote={pendingQuote}
+            onReplyPrivately={(conv, quote) => {
+              setActiveChat(conv);
+              setPendingQuote(quote);
+              setAppScreen('chat');
+            }}
           />
         );
       if (appScreen === 'chatinfo' && activeChat)
@@ -373,7 +436,7 @@ function AppInner() {
             onBack={() => setAppScreen('chat')}
             onManageGroup={() => setAppScreen('groupmanage')}
             // Messaging a group member switches the open thread to that 1:1.
-            onOpenChat={(conv) => { setActiveChat(conv); setAppScreen('chat'); }}
+            onOpenChat={(conv) => { setActiveChat(conv); setFocusId(null); setAppScreen('chat'); }}
             // Left/deleted → the thread is gone, so return to the list.
             onLeft={() => { setActiveChat(null); setAppScreen('chats'); }}
           />
@@ -406,15 +469,23 @@ function AppInner() {
           <ChatSettingsScreen
             user={user}
             onBack={() => setAppScreen('chats')}
+            onOpenGmeet={() => { setGmeetFrom('chatsettings'); setAppScreen('gmeetsettings'); }}
             onLogout={logout}
           />
         );
-      if (appScreen === 'newchat')
+      // Admin-only config for the shared Google account. Reachable from Chat
+      // settings and from a thread's ⋮ when Meet is not connected yet.
+      if (appScreen === 'gmeetsettings')
+        return <GmeetSettingsScreen onBack={() => setAppScreen(gmeetFrom || 'chatsettings')} />;
+      if (appScreen === 'newchat' || appScreen === 'newgroup')
         return (
           <NewChatScreen
+            // Reached either from the + (contacts first) or from the ⋮ "New
+            // group", which drops straight into the group builder.
+            startInGroupMode={appScreen === 'newgroup'}
             onBack={() => setAppScreen('chats')}
             // openDirect/createGroup both return a conversation, so go straight in.
-            onOpenChat={(conv) => { setActiveChat(conv); setAppScreen('chat'); }}
+            onOpenChat={(conv) => { setActiveChat(conv); setFocusId(null); setAppScreen('chat'); }}
           />
         );
       if (appScreen === 'notifications')
@@ -429,29 +500,66 @@ function AppInner() {
         return <CompanyBranding onBack={home} />;
       if (appScreen === 'usermanual')
         return <UserManual onBack={home} />;
+      if (appScreen === 'calls')
+        return (
+          <CallsScreen
+            onOpenChat={(conversationId, title) => {
+              setActiveChat({ id: conversationId, title: title || 'Chat' });
+              setAppScreen('chat');
+            }}
+          />
+        );
       // Fallthrough IS the root. Any unmatched route — including 'chat' and
       // friends when activeChat is somehow null — lands on the chat list rather
       // than a blank screen.
       return (
         <ChatListScreen
           onBack={home}
-          onNewChat={() => setAppScreen('newchat')}
-          onOpenChat={(conv) => { setActiveChat(conv); setAppScreen('chat'); }}
+          onNewChat={(opts) => setAppScreen(opts?.group ? 'newgroup' : 'newchat')}
+          onOpenChat={(conv) => { setActiveChat(conv); setFocusId(null); setAppScreen('chat'); }}
           onOpenSearch={() => { setActiveChat(null); setAppScreen('chatsearch'); }}
           onOpenStarred={() => setAppScreen('starred')}
           onOpenSettings={() => setAppScreen('chatsettings')}
           onOpenNotifications={() => setAppScreen('notifications')}
           onOpenAdmin={(dest) => setAppScreen(dest)}
+          // A search hit opens that conversation AT that message: the thread
+          // loads the window around it via /chat/messages_around and flashes it.
+          onOpenHit={(conversationId, messageId, title) => {
+            setActiveChat({ id: conversationId, title: title || 'Chat' });
+            setFocusId(messageId ?? null);
+            setAppScreen('chat');
+          }}
           onLogout={logout}
         />
       );
     };
 
+    // The tab bar belongs to the two ROOT screens only. On a thread or a
+    // settings page it would compete with the back button for the same gesture.
+    const ROOTS = ['chats', 'calls'];
+    const atRoot = ROOTS.includes(appScreen);
+
     // key by appScreen so each navigation replays the enter animation.
+    //
+    // themeName is in the key too. Module-level StyleSheet blocks are built once
+    // per palette and handed out by a proxy (see theme.js) — a component that
+    // never calls useTheme() would keep rendering the old palette's objects, so
+    // a flip remounts the tree. It costs one frame on an action taken once, and
+    // AppInner's own state (user, appScreen, activeChat) lives above this and
+    // survives.
     return (
-      <ScreenTransition screenKey={appScreen}>
-        {renderScreen()}
-      </ScreenTransition>
+      <View style={{ flex: 1 }}>
+        <ScreenTransition screenKey={`${appScreen}:${themeKey}`}>
+          {renderScreen()}
+        </ScreenTransition>
+        {atRoot && (
+          <BottomTabs
+            active={appScreen}
+            onChange={setAppScreen}
+            counts={{ chats: chatUnread }}
+          />
+        )}
+      </View>
     );
   }
 

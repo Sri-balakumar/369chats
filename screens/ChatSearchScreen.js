@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, SHADOW, RADIUS, SPACING, TOP } from '../theme';
+import { COLORS, SHADOW, RADIUS, SPACING, TOP, themed } from '../theme';
 import { Screen, EmptyState, emptyWrap } from '../components/ui';
 import * as chat from '../services/chat';
 import { createLogger } from '../api/logger';
@@ -128,28 +128,28 @@ export default function ChatSearchScreen({ conversation, onBack, onJump, onOpenC
   );
 }
 
-const s = StyleSheet.create({
+const s = themed((C) => ({
   header: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.md,
     paddingHorizontal: SPACING.md, paddingBottom: SPACING.md,
   },
   iconBtn: {
-    width: 40, height: 40, borderRadius: RADIUS.lg, backgroundColor: '#fff',
+    width: 40, height: 40, borderRadius: RADIUS.lg, backgroundColor: COLORS.card,
     alignItems: 'center', justifyContent: 'center', ...SHADOW,
   },
   searchWrap: {
     flex: 1, flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
-    backgroundColor: '#fff', borderRadius: RADIUS.pill, borderWidth: 1, borderColor: COLORS.line,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.pill, borderWidth: 1, borderColor: C.line,
     paddingHorizontal: SPACING.lg, height: 42,
   },
-  search: { flex: 1, fontSize: 14.5, color: COLORS.ink, paddingVertical: 0 },
+  search: { flex: 1, fontSize: 14.5, color: C.ink, paddingVertical: 0 },
 
   row: {
     paddingHorizontal: SPACING.screen, paddingVertical: SPACING.md,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.line,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
   },
   rowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  rowTitle: { flex: 1, fontSize: 14.5, fontWeight: '800', color: COLORS.navy },
-  rowWhen: { fontSize: 11.5, color: COLORS.slate400 },
-  rowSnippet: { fontSize: 13.5, color: COLORS.slate500, marginTop: 3 },
-});
+  rowTitle: { flex: 1, fontSize: 14.5, fontWeight: '800', color: C.navy },
+  rowWhen: { fontSize: 11.5, color: C.slate400 },
+  rowSnippet: { fontSize: 13.5, color: C.slate500, marginTop: 3 },
+}));

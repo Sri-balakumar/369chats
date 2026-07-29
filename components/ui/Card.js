@@ -3,7 +3,7 @@
 // card is a plain View (no touch handler, so it stays accessible as static content).
 import React from 'react';
 import { View, TouchableOpacity, StyleSheet } from 'react-native';
-import { COLORS, SHADOW, RADIUS, SPACING } from '../../theme';
+import { COLORS, SHADOW, RADIUS, SPACING, themed } from '../../theme';
 
 export default function Card({ children, style, onPress }) {
   if (onPress) {
@@ -16,9 +16,9 @@ export default function Card({ children, style, onPress }) {
   return <View style={[s.card, style]}>{children}</View>;
 }
 
-const s = StyleSheet.create({
+const s = themed((C) => ({
   card: {
-    backgroundColor: '#fff', borderRadius: RADIUS.xl, padding: SPACING.screen,
-    marginBottom: SPACING.lg, borderWidth: 1, borderColor: COLORS.line, ...SHADOW,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.xl, padding: SPACING.screen,
+    marginBottom: SPACING.lg, borderWidth: 1, borderColor: C.line, ...SHADOW,
   },
-});
+}));

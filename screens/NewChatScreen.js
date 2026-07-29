@@ -10,14 +10,14 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, SHADOW, RADIUS, SPACING, TOP } from '../theme';
+import { COLORS, SHADOW, RADIUS, SPACING, TOP, themed } from '../theme';
 import { Screen, Loader, EmptyState, Avatar, emptyWrap } from '../components/ui';
 import * as chat from '../services/chat';
 import { createLogger } from '../api/logger';
 
 const log = createLogger('NewChat');
 
-export default function NewChatScreen({ onBack, onOpenChat }) {
+export default function NewChatScreen({ onBack, onOpenChat, startInGroupMode }) {
   const insets = useSafeAreaInsets();   // the FAB and the list must clear the nav bar
   const [contacts, setContacts] = useState([]);
   const [query, setQuery] = useState('');
@@ -26,7 +26,8 @@ export default function NewChatScreen({ onBack, onOpenChat }) {
   const [busy, setBusy] = useState(false);
 
   // Group mode: selecting more than one person turns this into a group builder.
-  const [groupMode, setGroupMode] = useState(false);
+  // Can also be entered directly from the chat list's "New group".
+  const [groupMode, setGroupMode] = useState(!!startInGroupMode);
   const [selected, setSelected] = useState([]);   // user ids
   const [groupName, setGroupName] = useState('');
 
@@ -68,6 +69,29 @@ export default function NewChatScreen({ onBack, onOpenChat }) {
     }
   };
 
+  // "Message yourself" — the server keeps a dedicated self-conversation.
+  //
+  // The spinner matters: this is a network round-trip with no other visual
+  // feedback, so without it a slow response is indistinguishable from a dead
+  // button. Logged too, so the console shows the attempt either way.
+  const [selfBusy, setSelfBusy] = useState(false);
+  const openSelfChat = async () => {
+    if (selfBusy) return;
+    log.info('open self chat');
+    setSelfBusy(true);
+    try {
+      const conv = await chat.openSelf();
+      log.info('self chat opened', { id: conv?.id });
+      if (!conv?.id) throw new Error('The server did not return a conversation.');
+      onOpenChat(conv);
+    } catch (e) {
+      log.warn('open self failed', e?.message);
+      Alert.alert('Could not open', e?.message || 'Please try again.');
+    } finally {
+      setSelfBusy(false);
+    }
+  };
+
   const makeGroup = async () => {
     const name = groupName.trim();
     if (!name) { Alert.alert('Group name', 'Give the group a name first.'); return; }
@@ -100,7 +124,7 @@ export default function NewChatScreen({ onBack, onOpenChat }) {
         </View>
         {groupMode && (
           <View style={[s.check, on && s.checkOn]}>
-            {on && <Ionicons name="checkmark" size={15} color="#fff" />}
+            {on && <Ionicons name="checkmark" size={15} color={COLORS.onPrimary} />}
           </View>
         )}
       </TouchableOpacity>
@@ -151,6 +175,32 @@ export default function NewChatScreen({ onBack, onOpenChat }) {
         )}
       </View>
 
+      {/* Shortcut rows above the contact list, the way the web client leads with
+          "New group". Hidden while already building one. */}
+      {!groupMode && !query && (
+        <View style={s.shortcuts}>
+          <TouchableOpacity style={s.shortcut} activeOpacity={0.75} onPress={() => { setGroupMode(true); setSelected([]); }}>
+            <View style={[s.shortcutIcon, { backgroundColor: COLORS.greenBg }]}>
+              <Ionicons name="people" size={20} color={COLORS.green} />
+            </View>
+            <Text style={s.shortcutTxt}>New group</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={s.shortcut}
+            activeOpacity={0.75}
+            onPress={openSelfChat}
+            disabled={selfBusy}
+          >
+            <View style={[s.shortcutIcon, { backgroundColor: COLORS.violetBg }]}>
+              {selfBusy
+                ? <ActivityIndicator size="small" color={COLORS.violet} />
+                : <Ionicons name="bookmark" size={20} color={COLORS.violet} />}
+            </View>
+            <Text style={s.shortcutTxt}>Message yourself</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {loading ? (
         <Loader />
       ) : error ? (
@@ -180,56 +230,67 @@ export default function NewChatScreen({ onBack, onOpenChat }) {
       {groupMode && (
         <TouchableOpacity style={[s.fab, { bottom: 24 + insets.bottom }]} onPress={makeGroup} activeOpacity={0.9} disabled={busy}>
           {busy
-            ? <ActivityIndicator color="#fff" />
-            : <><Ionicons name="checkmark" size={20} color="#fff" /><Text style={s.fabTxt}>Create group</Text></>}
+            ? <ActivityIndicator color={COLORS.onPrimary} />
+            : <><Ionicons name="checkmark" size={20} color={COLORS.onPrimary} /><Text style={s.fabTxt}>Create group</Text></>}
         </TouchableOpacity>
       )}
     </Screen>
   );
 }
 
-const s = StyleSheet.create({
+const s = themed((C) => ({
   header: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
     paddingHorizontal: 16, paddingBottom: SPACING.md,
   },
-  headerTitle: { flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '900', color: COLORS.navy },
+  headerTitle: { flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '900', color: C.navy },
   iconBtn: {
-    width: 40, height: 40, borderRadius: RADIUS.lg, backgroundColor: '#fff',
+    width: 40, height: 40, borderRadius: RADIUS.lg, backgroundColor: COLORS.card,
     alignItems: 'center', justifyContent: 'center', ...SHADOW,
   },
 
   searchWrap: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
     marginHorizontal: SPACING.screen, marginBottom: SPACING.md,
-    backgroundColor: '#fff', borderRadius: RADIUS.pill, borderWidth: 1, borderColor: COLORS.line,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.pill, borderWidth: 1, borderColor: C.line,
     paddingHorizontal: SPACING.lg, height: 42,
   },
   groupNameWrap: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
     marginHorizontal: SPACING.screen, marginBottom: SPACING.md,
-    backgroundColor: '#fff', borderRadius: RADIUS.lg, borderWidth: 1.5, borderColor: COLORS.primary,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.lg, borderWidth: 1.5, borderColor: C.primary,
     paddingHorizontal: SPACING.lg, height: 46,
   },
-  search: { flex: 1, fontSize: 14.5, color: COLORS.ink, paddingVertical: 0 },
+  search: { flex: 1, fontSize: 14.5, color: C.ink, paddingVertical: 0 },
+
+  shortcuts: { paddingBottom: SPACING.sm },
+  shortcut: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.lg,
+    paddingHorizontal: SPACING.screen, paddingVertical: SPACING.md,
+  },
+  shortcutIcon: {
+    width: 46, height: 46, borderRadius: 23,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  shortcutTxt: { fontSize: 15.5, fontWeight: '800', color: C.ink },
 
   row: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.lg,
     paddingHorizontal: SPACING.screen, paddingVertical: SPACING.md,
   },
   rowBody: { flex: 1 },
-  name: { fontSize: 15.5, fontWeight: '800', color: COLORS.slate900 },
-  meta: { fontSize: 12.5, color: COLORS.slate500, marginTop: 2 },
+  name: { fontSize: 15.5, fontWeight: '800', color: C.slate900 },
+  meta: { fontSize: 12.5, color: C.slate500, marginTop: 2 },
   check: {
-    width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: COLORS.line,
+    width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: C.line,
     alignItems: 'center', justifyContent: 'center',
   },
-  checkOn: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  checkOn: { backgroundColor: C.primary, borderColor: C.primary },
 
   fab: {
     position: 'absolute', left: SPACING.screen, right: SPACING.screen, bottom: 24,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm,
-    height: 52, borderRadius: RADIUS.lg, backgroundColor: COLORS.primary, ...SHADOW,
+    height: 52, borderRadius: RADIUS.lg, backgroundColor: C.primary, ...SHADOW,
   },
-  fabTxt: { color: '#fff', fontSize: 15.5, fontWeight: '800' },
-});
+  fabTxt: { color: COLORS.onPrimary, fontSize: 15.5, fontWeight: '800' },
+}));

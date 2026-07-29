@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Svg, { Path, Rect, Circle } from 'react-native-svg';
-import { COLORS } from '../theme';
+import { COLORS, themed } from '../theme';
 
 const TOP = (RNStatusBar.currentHeight || 0) + 14;
 
@@ -16,15 +16,15 @@ const TOP = (RNStatusBar.currentHeight || 0) + 14;
 function MailLock() {
   return (
     <Svg width={150} height={112} viewBox="0 0 150 112">
-      <Circle cx="20" cy="24" r="4" fill="#BFD2F2" />
-      <Circle cx="132" cy="40" r="5" fill="#BFD2F2" />
-      <Circle cx="120" cy="14" r="3" fill="#BFD2F2" />
-      <Path d="M22 8 l4 4 -4 4 -4 -4 z" fill="#CBDAF5" />
-      <Path d="M128 86 l4 4 -4 4 -4 -4 z" fill="#CBDAF5" />
+      <Circle cx="20" cy="24" r="4" fill={COLORS.line} />
+      <Circle cx="132" cy="40" r="5" fill={COLORS.line} />
+      <Circle cx="120" cy="14" r="3" fill={COLORS.line} />
+      <Path d="M22 8 l4 4 -4 4 -4 -4 z" fill={COLORS.line} />
+      <Path d="M128 86 l4 4 -4 4 -4 -4 z" fill={COLORS.line} />
       {/* envelope body */}
-      <Rect x="30" y="34" width="90" height="60" rx="8" fill="#EAF1FE" stroke="#9DB9EC" strokeWidth="2.5" />
+      <Rect x="30" y="34" width="90" height="60" rx="8" fill={COLORS.tintBg} stroke={COLORS.line} strokeWidth="2.5" />
       {/* flap */}
-      <Path d="M33 40 L75 70 L117 40" fill="none" stroke="#9DB9EC" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M33 40 L75 70 L117 40" fill="none" stroke={COLORS.line} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
       {/* lock badge */}
       <Circle cx="112" cy="86" r="18" fill={COLORS.primary} />
       <Rect x="105" y="84" width="14" height="11" rx="2.5" fill="#fff" />
@@ -79,7 +79,7 @@ export default function ForgotPasswordScreen({ goLogin }) {
           </View>
 
           <TouchableOpacity style={[s.primaryBtn, loading && { opacity: 0.7 }]} onPress={send} activeOpacity={0.9} disabled={loading}>
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryTxt}>{sent ? 'Resend Link' : 'Send Reset Link'}</Text>}
+            {loading ? <ActivityIndicator color={COLORS.onPrimary} /> : <Text style={s.primaryTxt}>{sent ? 'Resend Link' : 'Send Reset Link'}</Text>}
           </TouchableOpacity>
 
           {/* Illustration */}
@@ -114,45 +114,45 @@ export default function ForgotPasswordScreen({ goLogin }) {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: COLORS.bg },
+const s = themed((C) => ({
+  root: { flex: 1, backgroundColor: C.bg },
   topRow: { paddingHorizontal: 18 },
-  back: { fontSize: 40, color: COLORS.navy, lineHeight: 40, marginTop: -6 },
+  back: { fontSize: 40, color: C.navy, lineHeight: 40, marginTop: -6 },
 
   logoWrap: { alignItems: 'center', marginTop: 2 },
   logo369img: { width: 210, height: 130 },
 
-  title: { fontSize: 26, fontWeight: '900', color: COLORS.navy, textAlign: 'center', marginTop: 8 },
-  sub: { fontSize: 14, color: COLORS.muted, textAlign: 'center', marginTop: 10, lineHeight: 20 },
+  title: { fontSize: 26, fontWeight: '900', color: C.navy, textAlign: 'center', marginTop: 8 },
+  sub: { fontSize: 14, color: C.muted, textAlign: 'center', marginTop: 10, lineHeight: 20 },
 
   form: { paddingHorizontal: 24, marginTop: 24 },
   field: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderWidth: 1.5, borderColor: COLORS.line,
+    flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.card, borderWidth: 1.5, borderColor: C.line,
     borderRadius: 14, paddingHorizontal: 15, marginBottom: 16, height: 56,
   },
   fIcon: { fontSize: 16, marginRight: 10 },
-  input: { flex: 1, fontSize: 15.5, color: COLORS.ink, height: '100%' },
+  input: { flex: 1, fontSize: 15.5, color: C.ink, height: '100%' },
 
-  primaryBtn: { backgroundColor: COLORS.primary, borderRadius: 14, height: 56, alignItems: 'center', justifyContent: 'center' },
-  primaryTxt: { color: '#fff', fontSize: 17, fontWeight: '800', letterSpacing: 0.3 },
+  primaryBtn: { backgroundColor: C.primary, borderRadius: 14, height: 56, alignItems: 'center', justifyContent: 'center' },
+  primaryTxt: { color: COLORS.onPrimary, fontSize: 17, fontWeight: '800', letterSpacing: 0.3 },
 
   illustration: { alignItems: 'center', marginTop: 30, marginBottom: 20 },
 
-  supportTitle: { fontSize: 16, fontWeight: '800', color: COLORS.navy, textAlign: 'center' },
-  supportSub: { fontSize: 13.5, color: COLORS.muted, textAlign: 'center', marginTop: 8, lineHeight: 19 },
+  supportTitle: { fontSize: 16, fontWeight: '800', color: C.navy, textAlign: 'center' },
+  supportSub: { fontSize: 13.5, color: C.muted, textAlign: 'center', marginTop: 8, lineHeight: 19 },
 
   supportBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, alignSelf: 'center',
-    borderWidth: 1.5, borderColor: COLORS.primary, borderRadius: 12, paddingHorizontal: 22, height: 48, marginTop: 18,
+    borderWidth: 1.5, borderColor: C.primary, borderRadius: 12, paddingHorizontal: 22, height: 48, marginTop: 18,
   },
   supportIcon: { fontSize: 16 },
-  supportBtnTxt: { fontSize: 15, fontWeight: '800', color: COLORS.link },
+  supportBtnTxt: { fontSize: 15, fontWeight: '800', color: C.link },
 
   bottomRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 22 },
-  bottomTxt: { color: COLORS.muted, fontSize: 14 },
-  bottomLink: { color: COLORS.link, fontSize: 14, fontWeight: '800' },
+  bottomTxt: { color: C.muted, fontSize: 14 },
+  bottomLink: { color: C.link, fontSize: 14, fontWeight: '800' },
 
   footer: { height: 110, justifyContent: 'flex-end', marginTop: 20 },
   alphaRow: { alignItems: 'center', justifyContent: 'center', paddingBottom: 40 },
   alphaImg: { width: 170, height: 46 },
-});
+}));

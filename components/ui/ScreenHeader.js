@@ -9,7 +9,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS, SHADOW, RADIUS, SPACING, TOP } from '../../theme';
+import { COLORS, SHADOW, RADIUS, SPACING, TOP, themed } from '../../theme';
 
 const HIT = { top: 12, bottom: 12, left: 12, right: 12 };
 
@@ -37,15 +37,15 @@ export function HeaderButton({ icon, onPress, color = COLORS.primary }) {
   );
 }
 
-const s = StyleSheet.create({
+const s = themed((C) => ({
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingBottom: SPACING.lg,
   },
   iconBtn: {
-    width: 40, height: 40, borderRadius: RADIUS.lg, backgroundColor: '#fff',
+    width: 40, height: 40, borderRadius: RADIUS.lg, backgroundColor: COLORS.card,
     alignItems: 'center', justifyContent: 'center', ...SHADOW,
   },
   spacer: { width: 40 },
-  title: { flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '900', color: COLORS.navy, marginHorizontal: SPACING.sm },
-});
+  title: { flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '900', color: C.navy, marginHorizontal: SPACING.sm },
+}));

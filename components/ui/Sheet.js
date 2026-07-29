@@ -1,41 +1,67 @@
-// Sheet — the bottom sheet: slides up, 22px top radii, a grab handle, and a
-// tap-the-scrim-to-dismiss backdrop.
+// Sheet — the bottom sheet: slides up, rounded top, grab handle, tap-scrim to
+// dismiss.
 //
-// The nested TouchableOpacity is deliberate — the outer one catches scrim taps,
-// the inner one swallows taps on the sheet itself so they don't close it.
-// KeyboardAvoidingView is included because these sheets usually hold a form.
+// The nested pressables are deliberate: the outer catches scrim taps, the inner
+// swallows taps on the sheet itself so content doesn't close it. The grab handle
+// is also a tap target, because reaching for it to dismiss is instinctive.
 import React from 'react';
 import {
-  Modal, View, Text, TouchableOpacity, KeyboardAvoidingView, Platform, StyleSheet,
+  Modal, View, Text, TouchableOpacity, TouchableWithoutFeedback,
+  KeyboardAvoidingView, Platform, StyleSheet,
 } from 'react-native';
-import { COLORS, RADIUS, SCRIM, SPACING } from '../../theme';
+import { COLORS, RADIUS, SCRIM, SPACING, themed } from '../../theme';
 
-export default function Sheet({ visible, onClose, title, children }) {
+export default function Sheet({ visible, onClose, title, subtitle, children }) {
   return (
-    <Modal visible={!!visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={!!visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <TouchableOpacity style={s.backdrop} activeOpacity={1} onPress={onClose}>
-          <TouchableOpacity activeOpacity={1} style={s.sheet}>
+        <TouchableWithoutFeedback onPress={onClose}>
+          <View style={s.backdrop} />
+        </TouchableWithoutFeedback>
+
+        <View style={s.sheet}>
+          <TouchableOpacity
+            activeOpacity={0.6}
+            onPress={onClose}
+            style={s.handleZone}
+            hitSlop={{ top: 8, bottom: 8, left: 40, right: 40 }}
+          >
             <View style={s.handle} />
-            {!!title && <Text style={s.title}>{title}</Text>}
-            {children}
           </TouchableOpacity>
-        </TouchableOpacity>
+
+          {!!title && (
+            <View style={s.head}>
+              <Text style={s.title} numberOfLines={1}>{title}</Text>
+              {!!subtitle && <Text style={s.subtitle} numberOfLines={2}>{subtitle}</Text>}
+            </View>
+          )}
+          <View style={s.body}>{children}</View>
+        </View>
       </KeyboardAvoidingView>
     </Modal>
   );
 }
 
-const s = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: SCRIM, justifyContent: 'flex-end' },
+const s = themed((C) => ({
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: C.scrim },
   sheet: {
-    backgroundColor: '#fff',
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    maxHeight: '86%',
+    backgroundColor: COLORS.card,
     borderTopLeftRadius: RADIUS.sheet, borderTopRightRadius: RADIUS.sheet,
-    padding: 18, paddingBottom: 26,
+    paddingBottom: Platform.OS === 'ios' ? 30 : SPACING.xl,
+    ...Platform.select({
+      android: { elevation: 16 },
+      default: {
+        shadowColor: COLORS.slate900, shadowOpacity: 0.25,
+        shadowRadius: 24, shadowOffset: { width: 0, height: -6 },
+      },
+    }),
   },
-  handle: {
-    alignSelf: 'center', width: 40, height: 4, borderRadius: 2,
-    backgroundColor: '#D5DCE8', marginBottom: SPACING.screen,
-  },
-  title: { fontSize: 18, fontWeight: '900', color: COLORS.navy, marginBottom: SPACING.sm },
-});
+  handleZone: { alignItems: 'center', paddingTop: SPACING.md, paddingBottom: SPACING.sm },
+  handle: { width: 44, height: 4.5, borderRadius: 3, backgroundColor: COLORS.line },
+  head: { paddingHorizontal: SPACING.xl, paddingBottom: SPACING.md },
+  title: { fontSize: 17.5, fontWeight: '900', color: C.navy },
+  subtitle: { fontSize: 12.5, color: C.slate500, marginTop: 3, lineHeight: 17 },
+  body: { paddingHorizontal: SPACING.xl },
+}));

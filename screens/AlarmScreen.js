@@ -6,6 +6,7 @@
 // task. Snooze re-rings in 5 minutes. Android-only in practice.
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, Animated, Easing } from 'react-native';
+import { COLORS, themed } from '../theme';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import GradientBackground from '../components/GradientBackground';
 import { getAlarmSettings } from '../api/session';
@@ -139,41 +140,41 @@ export default function AlarmScreen({ alarm, onStop, onSnooze }) {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#EAF2FF' },
+const styles = themed((C) => ({
+  root: { flex: 1, backgroundColor: C.tintBg },
   safe: { flex: 1, justifyContent: 'space-between', paddingHorizontal: 24, paddingVertical: 18 },
   top: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   bellWrap: {
-    width: 78, height: 78, borderRadius: 39, backgroundColor: '#1E40AF',
+    width: 78, height: 78, borderRadius: 39, backgroundColor: C.primary,
     alignItems: 'center', justifyContent: 'center', marginBottom: 14,
   },
   bell: { fontSize: 38 },
   // Hero time
   timeRow: { flexDirection: 'row', alignItems: 'flex-start' },
-  time: { fontSize: 54, fontWeight: '900', color: '#0F1F4D', letterSpacing: 1, lineHeight: 58 },
-  ap: { fontSize: 17, fontWeight: '800', color: '#1E3A8A', marginTop: 8, marginLeft: 5 },
-  date: { fontSize: 13.5, fontWeight: '700', color: '#4B5B7A', marginTop: 2, marginBottom: 14 },
-  title: { fontSize: 17, fontWeight: '800', color: '#1E40AF', marginBottom: 12 },
+  time: { fontSize: 54, fontWeight: '900', color: C.navy, letterSpacing: 1, lineHeight: 58 },
+  ap: { fontSize: 17, fontWeight: '800', color: C.navy, marginTop: 8, marginLeft: 5 },
+  date: { fontSize: 13.5, fontWeight: '700', color: C.muted, marginTop: 2, marginBottom: 14 },
+  title: { fontSize: 17, fontWeight: '800', color: C.primary, marginBottom: 12 },
   // Reason card (shown only when a reason was typed)
   reasonCard: {
-    width: '100%', backgroundColor: '#FFFFFF', borderRadius: 14, paddingVertical: 13, paddingHorizontal: 16,
-    borderWidth: 1.5, borderColor: '#C7DDF7', alignItems: 'center',
+    width: '100%', backgroundColor: C.card, borderRadius: 14, paddingVertical: 13, paddingHorizontal: 16,
+    borderWidth: 1.5, borderColor: C.line, alignItems: 'center',
   },
-  reasonLabel: { fontSize: 10.5, fontWeight: '800', color: '#7C8DB0', letterSpacing: 1.5, marginBottom: 5 },
-  reasonText: { fontSize: 17, fontWeight: '800', color: '#0F1F4D', textAlign: 'center', lineHeight: 22 },
-  taskSub: { fontSize: 12.5, fontWeight: '600', color: '#6B7A99', textAlign: 'center', marginTop: 6 },
-  taskPlain: { fontSize: 16, fontWeight: '700', color: '#33436A', textAlign: 'center', paddingHorizontal: 10 },
-  sub: { fontSize: 13, color: '#4B5B7A', marginTop: 10, textAlign: 'center' },
+  reasonLabel: { fontSize: 10.5, fontWeight: '800', color: C.faint, letterSpacing: 1.5, marginBottom: 5 },
+  reasonText: { fontSize: 17, fontWeight: '800', color: C.navy, textAlign: 'center', lineHeight: 22 },
+  taskSub: { fontSize: 12.5, fontWeight: '600', color: C.muted, textAlign: 'center', marginTop: 6 },
+  taskPlain: { fontSize: 16, fontWeight: '700', color: C.slate700, textAlign: 'center', paddingHorizontal: 10 },
+  sub: { fontSize: 13, color: C.muted, marginTop: 10, textAlign: 'center' },
   actions: { gap: 11 },
   stopBtn: {
-    backgroundColor: '#DC2626', paddingVertical: 15, borderRadius: 16, alignItems: 'center',
-    shadowColor: '#DC2626', shadowOpacity: 0.4, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 6,
+    backgroundColor: C.red, paddingVertical: 15, borderRadius: 16, alignItems: 'center',
+    shadowColor: C.red, shadowOpacity: 0.4, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 6,
   },
-  stopTxt: { color: '#fff', fontSize: 18, fontWeight: '800', letterSpacing: 1 },
+  stopTxt: { color: C.onPrimary, fontSize: 18, fontWeight: '800', letterSpacing: 1 },
   snoozeBtn: {
-    backgroundColor: '#FFFFFF', paddingVertical: 13, borderRadius: 14, alignItems: 'center',
-    borderWidth: 1.5, borderColor: '#C7DDF7',
+    backgroundColor: C.card, paddingVertical: 13, borderRadius: 14, alignItems: 'center',
+    borderWidth: 1.5, borderColor: C.line,
   },
-  snoozeTxt: { color: '#1E40AF', fontSize: 15, fontWeight: '700' },
+  snoozeTxt: { color: C.primary, fontSize: 15, fontWeight: '700' },
   pressed: { opacity: 0.85 },
-});
+}));

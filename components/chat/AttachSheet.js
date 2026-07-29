@@ -15,17 +15,24 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Modal, View, Text, Image, TouchableOpacity, TouchableWithoutFeedback,
-  StyleSheet, FlatList, Dimensions, Animated, PanResponder, ActivityIndicator,
+  StyleSheet, FlatList, Dimensions, Animated, PanResponder, ActivityIndicator, Linking,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as MediaLibrary from 'expo-media-library';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, RADIUS, SPACING, SCRIM } from '../../theme';
+import { COLORS, RADIUS, SPACING, SCRIM, themed } from '../../theme';
 import { createLogger } from '../../api/logger';
 
 const log = createLogger('AttachSheet');
 
 const { width: SW, height: SH } = Dimensions.get('window');
+// Android 13+ splits media access into photo/video/audio. expo-media-library
+// asks for ALL THREE by default, and READ_MEDIA_AUDIO is not in our manifest, so
+// the request was rejected outright — which is why the prompt never appeared.
+// The strip only ever lists photos and videos, so ask for exactly those.
+// (Declaring audio instead would need a native rebuild, and we do not want it.)
+const MEDIA_KINDS = ['photo', 'video'];
+
 const COLS = 3;
 const GAP = 3;
 const TILE = (SW - GAP * (COLS + 1)) / COLS;
@@ -55,7 +62,8 @@ function SourceTile({ item, onPress }) {
 export default function AttachSheet({ visible, onClose, items = [], onPickAsset }) {
   const insets = useSafeAreaInsets();
   const [assets, setAssets] = useState([]);
-  const [perm, setPerm] = useState(null);     // null unknown | true | false
+  const [perm, setPerm] = useState(null);
+  const [canAsk, setCanAsk] = useState(true);   // OS still willing to prompt
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [cursor, setCursor] = useState(null);
@@ -132,8 +140,13 @@ export default function AttachSheet({ visible, onClose, items = [], onPickAsset 
     setChosen([]);
     (async () => {
       try {
-        const r = await MediaLibrary.requestPermissionsAsync();
+        const r = await MediaLibrary.requestPermissionsAsync(false, MEDIA_KINDS);
         setPerm(r.granted);
+        // Android only prompts once. After a denial `canAskAgain` is false and
+        // every later request resolves denied WITHOUT showing anything — which is
+        // why the "Allow photo access" line looked inert: tapping could never
+        // have worked, and it wasn't even a button.
+        setCanAsk(r.canAskAgain !== false);
         if (r.granted) loadAssets(null);
       } catch (e) {
         log.warn('permission failed', e?.message);
@@ -141,6 +154,21 @@ export default function AttachSheet({ visible, onClose, items = [], onPickAsset 
       }
     })();
   }, [visible, height, loadAssets]);
+
+  // Re-ask if the OS still allows it; otherwise send them to app settings, which
+  // is the only place the choice can be changed once it has been denied.
+  const askForPhotos = useCallback(async () => {
+    try {
+      if (!canAsk) { await Linking.openSettings(); return; }
+      const r = await MediaLibrary.requestPermissionsAsync(false, MEDIA_KINDS);
+      setPerm(r.granted);
+      setCanAsk(r.canAskAgain !== false);
+      if (r.granted) loadAssets(null);
+      else if (r.canAskAgain === false) await Linking.openSettings();
+    } catch (e) {
+      log.warn('permission retry failed', e?.message);
+    }
+  }, [canAsk, loadAssets]);
 
   // iOS hands back a ph:// reference; only getAssetInfoAsync yields a path that
   // can actually be read off disk. Android's file:// is already usable.
@@ -195,7 +223,7 @@ export default function AttachSheet({ visible, onClose, items = [], onPickAsset 
         <Image source={{ uri: item.uri }} style={s.assetImg} />
         {item.mediaType === MediaLibrary.MediaType.video && (
           <View style={s.assetVideo}>
-            <Ionicons name="play" size={11} color="#fff" />
+            <Ionicons name="play" size={11} color={COLORS.onPrimary} />
             <Text style={s.assetDur}>{secs(item.duration)}</Text>
           </View>
         )}
@@ -241,7 +269,7 @@ export default function AttachSheet({ visible, onClose, items = [], onPickAsset 
                 onPress={() => handOff(chosen)}
               >
                 <Text style={s.selNextTxt}>Next</Text>
-                <Ionicons name="arrow-forward" size={14} color="#fff" />
+                <Ionicons name="arrow-forward" size={14} color={COLORS.onPrimary} />
               </TouchableOpacity>
             </View>
           ) : (
@@ -255,9 +283,18 @@ export default function AttachSheet({ visible, onClose, items = [], onPickAsset 
         )}
 
         {perm === false ? (
-          <Text style={s.note}>
-            Allow photo access to pick from here — or use the Gallery button above.
-          </Text>
+          <View style={s.permWrap}>
+            <Ionicons name="images-outline" size={26} color={COLORS.faint} />
+            <Text style={s.note}>
+              Allow photo access to pick recent photos from here — or use the
+              Gallery button above.
+            </Text>
+            <TouchableOpacity style={s.permBtn} onPress={askForPhotos} activeOpacity={0.85}>
+              <Text style={s.permBtnTxt}>
+                {canAsk ? 'Allow photo access' : 'Open settings'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         ) : loading && !assets.length ? (
           <ActivityIndicator style={{ marginTop: SPACING.xl }} color={COLORS.primary} />
         ) : (
@@ -281,16 +318,16 @@ export default function AttachSheet({ visible, onClose, items = [], onPickAsset 
   );
 }
 
-const s = StyleSheet.create({
-  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: SCRIM },
+const s = themed((C) => ({
+  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: C.scrim },
   sheet: {
     position: 'absolute', left: 0, right: 0, bottom: 0,
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.card,
     borderTopLeftRadius: RADIUS.sheet, borderTopRightRadius: RADIUS.sheet,
     overflow: 'hidden',
   },
   handleZone: { alignItems: 'center', paddingTop: SPACING.md, paddingBottom: SPACING.sm },
-  handle: { width: 42, height: 4, borderRadius: 2, backgroundColor: '#D5DCE8' },
+  handle: { width: 42, height: 4, borderRadius: 2, backgroundColor: COLORS.line },
 
   tiles: {
     flexDirection: 'row', flexWrap: 'wrap',
@@ -298,53 +335,59 @@ const s = StyleSheet.create({
   },
   tile: { width: '25%', alignItems: 'center', marginBottom: SPACING.screen, gap: 6 },
   circle: { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center' },
-  tileLabel: { fontSize: 11.5, color: COLORS.slate500, fontWeight: '600' },
+  tileLabel: { fontSize: 11.5, color: C.slate500, fontWeight: '600' },
 
   recentHead: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: SPACING.screen, paddingBottom: SPACING.sm,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.line,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.line,
     paddingTop: SPACING.md,
   },
   recentTitle: {
-    fontSize: 12, fontWeight: '900', color: COLORS.muted,
+    fontSize: 12, fontWeight: '900', color: C.muted,
     letterSpacing: 0.7, textTransform: 'uppercase',
   },
 
   assetTile: {
     width: TILE, height: TILE, margin: GAP / 2,
-    borderRadius: 4, overflow: 'hidden', backgroundColor: COLORS.slate100,
+    borderRadius: 4, overflow: 'hidden', backgroundColor: C.slate100,
   },
   assetImg: { width: '100%', height: '100%' },
   assetVideo: {
     position: 'absolute', left: 4, bottom: 4, flexDirection: 'row', alignItems: 'center', gap: 3,
     backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: RADIUS.sm, paddingHorizontal: 5, paddingVertical: 2,
   },
-  assetDur: { color: '#fff', fontSize: 9.5, fontWeight: '700' },
+  assetDur: { color: COLORS.onPrimary, fontSize: 9.5, fontWeight: '700' },
 
-  note: { fontSize: 13, color: COLORS.slate500, textAlign: 'center', padding: SPACING.xl, lineHeight: 19 },
+  permWrap: { alignItems: 'center', gap: SPACING.md, paddingVertical: SPACING.xl, paddingHorizontal: SPACING.xl },
+  permBtn: {
+    backgroundColor: C.primary, borderRadius: RADIUS.pill,
+    paddingHorizontal: SPACING.xl, paddingVertical: SPACING.md,
+  },
+  permBtnTxt: { color: C.onPrimary, fontSize: 14, fontWeight: '800' },
+  note: { fontSize: 13, color: C.slate500, textAlign: 'center', padding: SPACING.xl, lineHeight: 19 },
   hint: {
-    fontSize: 11, color: COLORS.faint, paddingHorizontal: SPACING.screen,
+    fontSize: 11, color: C.faint, paddingHorizontal: SPACING.screen,
     paddingBottom: SPACING.sm,
   },
 
   selActions: { flexDirection: 'row', alignItems: 'center', gap: SPACING.lg },
-  selCancel: { fontSize: 13, fontWeight: '700', color: COLORS.slate500 },
+  selCancel: { fontSize: 13, fontWeight: '700', color: C.slate500 },
   selNext: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
-    backgroundColor: COLORS.primary, borderRadius: RADIUS.pill,
+    backgroundColor: C.primary, borderRadius: RADIUS.pill,
     paddingHorizontal: 14, paddingVertical: 7,
   },
-  selNextTxt: { color: '#fff', fontSize: 13, fontWeight: '800' },
+  selNextTxt: { color: COLORS.onPrimary, fontSize: 13, fontWeight: '800' },
 
   // Numbered badge shows selection ORDER, which is the order they get sent in.
   check: {
     position: 'absolute', top: 5, right: 5,
     width: 22, height: 22, borderRadius: 11,
-    borderWidth: 2, borderColor: '#fff', backgroundColor: 'rgba(0,0,0,0.25)',
+    borderWidth: 2, borderColor: COLORS.card, backgroundColor: 'rgba(0,0,0,0.25)',
     alignItems: 'center', justifyContent: 'center',
   },
-  checkOn: { backgroundColor: COLORS.primary },
-  checkTxt: { color: '#fff', fontSize: 11, fontWeight: '900' },
+  checkOn: { backgroundColor: C.primary },
+  checkTxt: { color: COLORS.onPrimary, fontSize: 11, fontWeight: '900' },
   selOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(30,64,175,0.28)' },
-});
+}));

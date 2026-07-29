@@ -6,15 +6,16 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Switch,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput,
   ActivityIndicator, Modal, RefreshControl, Alert, KeyboardAvoidingView, Platform,
   ScrollView, StatusBar as RNStatusBar,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 
-import { COLORS, SHADOW } from '../theme';
+import { COLORS, SHADOW, themed } from '../theme';
 import GradientBackground from '../components/GradientBackground';
+import { Switch } from '../components/ui';
 import { createLogger } from '../api/logger';
 import {
   fetchUsers, createUser, updateUser, setUserRole, setUserMobile, resetUserPassword, changePassword,
@@ -29,9 +30,9 @@ const ROLES = [
   { key: 'admin', label: 'Admin' },
 ];
 const ROLE_META = {
-  admin:     { label: 'Admin',  bg: '#EDE9FE', fg: '#6D28D9', icon: 'shield-account' },
-  client:    { label: 'Client', bg: '#CFFAFE', fg: '#0E7490', icon: 'briefcase-account' },
-  developer: { label: 'User',   bg: '#DBEAFE', fg: '#1D4ED8', icon: 'account' },
+  admin:     { label: 'Admin',  bg: COLORS.violetBg, fg: COLORS.violet, icon: 'shield-account' },
+  client:    { label: 'Client', bg: COLORS.cyanBg, fg: COLORS.cyan, icon: 'briefcase-account' },
+  developer: { label: 'User',   bg: COLORS.blueBg, fg: COLORS.primary, icon: 'account' },
 };
 const roleMeta = (r) => ROLE_META[r] || ROLE_META.developer;
 
@@ -223,7 +224,7 @@ export default function UsersScreen({ onBack }) {
           keyExtractor={(u) => String(u.id)}
           renderItem={renderUser}
           contentContainerStyle={{ padding: 14, paddingBottom: 40 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} colors={[COLORS.primary]} progressBackgroundColor={COLORS.card} />}
           ListEmptyComponent={<Text style={s.empty}>No users found.</Text>}
         />
       )}
@@ -300,9 +301,9 @@ export default function UsersScreen({ onBack }) {
 
               {/* Primary action — saves the identity fields above */}
               <TouchableOpacity style={[s.saveBtn, saving && { opacity: 0.6 }]} onPress={save} disabled={saving} activeOpacity={0.9}>
-                {saving ? <ActivityIndicator color="#fff" /> : (
+                {saving ? <ActivityIndicator color={COLORS.onPrimary} /> : (
                   <>
-                    <Ionicons name="checkmark" size={18} color="#fff" />
+                    <Ionicons name="checkmark" size={18} color={COLORS.onPrimary} />
                     <Text style={s.saveTxt}>{isCreate ? 'Create User' : 'Save Changes'}</Text>
                   </>
                 )}
@@ -338,7 +339,7 @@ export default function UsersScreen({ onBack }) {
                     </TouchableOpacity>
                   </View>
                   <TouchableOpacity style={[s.changeBtn, busyChange && { opacity: 0.6 }]} onPress={doChangePassword} disabled={busyChange} activeOpacity={0.9}>
-                    {busyChange ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="key" size={16} color="#fff" />}
+                    {busyChange ? <ActivityIndicator size="small" color={COLORS.onPrimary} /> : <Ionicons name="key" size={16} color={COLORS.onPrimary} />}
                     <Text style={s.changeTxt}>Change Password</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={s.resetBtn} onPress={doResetPw} disabled={busyReset} activeOpacity={0.85}>
@@ -356,7 +357,7 @@ export default function UsersScreen({ onBack }) {
       <Modal visible={!!okMsg} transparent animationType="fade" onRequestClose={() => setOkMsg(null)}>
         <View style={s.okWrap}>
           <View style={s.okCard}>
-            <View style={s.okIcon}><Ionicons name="checkmark-sharp" size={38} color="#fff" /></View>
+            <View style={s.okIcon}><Ionicons name="checkmark-sharp" size={38} color={COLORS.onPrimary} /></View>
             <Text style={s.okTitle}>Done</Text>
             <Text style={s.okMsg}>{okMsg}</Text>
             <TouchableOpacity style={s.okBtn} onPress={() => setOkMsg(null)} activeOpacity={0.9}>
@@ -369,74 +370,74 @@ export default function UsersScreen({ onBack }) {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#EAF2FF' },
+const s = themed((C) => ({
+  root: { flex: 1, backgroundColor: COLORS.shell },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingTop: TOP, paddingBottom: 10 },
-  iconBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', ...SHADOW },
-  title: { flex: 1, textAlign: 'center', fontSize: 20, fontWeight: '800', color: COLORS.navy },
+  iconBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: COLORS.card, alignItems: 'center', justifyContent: 'center', ...SHADOW },
+  title: { flex: 1, textAlign: 'center', fontSize: 20, fontWeight: '800', color: C.navy },
 
-  mockBar: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: COLORS.amberBg, paddingVertical: 7, paddingHorizontal: 14 },
-  mockTxt: { color: COLORS.amber, fontSize: 11.5, flex: 1 },
+  mockBar: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.amberBg, paddingVertical: 7, paddingHorizontal: 14 },
+  mockTxt: { color: C.amber, fontSize: 11.5, flex: 1 },
 
-  searchWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fff', marginHorizontal: 14, marginTop: 8, borderRadius: 12, paddingHorizontal: 12, height: 44, ...SHADOW },
-  search: { flex: 1, fontSize: 14.5, color: COLORS.ink },
+  searchWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: COLORS.card, marginHorizontal: 14, marginTop: 8, borderRadius: 12, paddingHorizontal: 12, height: 44, ...SHADOW },
+  search: { flex: 1, fontSize: 14.5, color: C.ink },
 
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 30, gap: 8 },
-  errTxt: { color: COLORS.red, textAlign: 'center' },
-  retry: { marginTop: 12, backgroundColor: COLORS.primary, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10 },
-  retryTxt: { color: '#fff', fontWeight: '700' },
-  empty: { textAlign: 'center', color: COLORS.muted, marginTop: 30 },
+  errTxt: { color: C.red, textAlign: 'center' },
+  retry: { marginTop: 12, backgroundColor: C.primary, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10 },
+  retryTxt: { color: COLORS.onPrimary, fontWeight: '700' },
+  empty: { textAlign: 'center', color: C.muted, marginTop: 30 },
 
-  card: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', borderRadius: 14, padding: 12, marginBottom: 10, ...SHADOW },
-  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#E0ECFF', alignItems: 'center', justifyContent: 'center' },
-  avatarTxt: { fontSize: 16, fontWeight: '800', color: COLORS.primary },
+  card: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: COLORS.card, borderRadius: 14, padding: 12, marginBottom: 10, ...SHADOW },
+  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.slate50, alignItems: 'center', justifyContent: 'center' },
+  avatarTxt: { fontSize: 16, fontWeight: '800', color: C.primary },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  name: { fontSize: 15, fontWeight: '800', color: COLORS.ink, flexShrink: 1 },
-  sub: { fontSize: 12, color: COLORS.muted, marginTop: 1 },
-  archived: { backgroundColor: '#F1F5F9', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 1 },
-  archivedTxt: { fontSize: 10, fontWeight: '700', color: COLORS.muted },
+  name: { fontSize: 15, fontWeight: '800', color: C.ink, flexShrink: 1 },
+  sub: { fontSize: 12, color: C.muted, marginTop: 1 },
+  archived: { backgroundColor: COLORS.slate100, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 1 },
+  archivedTxt: { fontSize: 10, fontWeight: '700', color: C.muted },
   roleBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4 },
   roleBadgeTxt: { fontSize: 12, fontWeight: '800' },
 
   // Centered dialog (not a bottom sheet) — matches the app's other popups.
   mWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: 'rgba(15,23,42,0.5)' },
-  sheet: { width: '100%', maxWidth: 440, backgroundColor: '#fff', borderRadius: 20, maxHeight: '85%', overflow: 'hidden' },
-  sheetHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: COLORS.line },
-  sheetTitle: { fontSize: 18, fontWeight: '900', color: COLORS.navy },
+  sheet: { width: '100%', maxWidth: 440, backgroundColor: COLORS.card, borderRadius: 20, maxHeight: '85%', overflow: 'hidden' },
+  sheetHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: C.line },
+  sheetTitle: { fontSize: 18, fontWeight: '900', color: C.navy },
 
-  label: { fontSize: 13, fontWeight: '700', color: COLORS.ink, marginBottom: 6, marginTop: 12 },
-  input: { borderWidth: 1.5, borderColor: COLORS.line, borderRadius: 10, height: 46, paddingHorizontal: 12, fontSize: 15, color: COLORS.ink, backgroundColor: '#fff' },
-  pwWrap: { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: COLORS.line, borderRadius: 10, height: 46, backgroundColor: '#fff', paddingRight: 6 },
-  pwInput: { flex: 1, height: '100%', paddingHorizontal: 12, fontSize: 15, color: COLORS.ink },
+  label: { fontSize: 13, fontWeight: '700', color: C.ink, marginBottom: 6, marginTop: 12 },
+  input: { borderWidth: 1.5, borderColor: C.line, borderRadius: 10, height: 46, paddingHorizontal: 12, fontSize: 15, color: C.ink, backgroundColor: COLORS.card },
+  pwWrap: { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: C.line, borderRadius: 10, height: 46, backgroundColor: COLORS.card, paddingRight: 6 },
+  pwInput: { flex: 1, height: '100%', paddingHorizontal: 12, fontSize: 15, color: C.ink },
   pwEye: { paddingHorizontal: 6, paddingVertical: 6 },
-  hint: { fontSize: 12, color: COLORS.muted, marginTop: 8, lineHeight: 17 },
+  hint: { fontSize: 12, color: C.muted, marginTop: 8, lineHeight: 17 },
 
   segment: { flexDirection: 'row', gap: 8 },
-  segBtn: { flex: 1, height: 42, borderRadius: 10, borderWidth: 1.5, borderColor: COLORS.line, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
-  segBtnOn: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  segBtn: { flex: 1, height: 42, borderRadius: 10, borderWidth: 1.5, borderColor: C.line, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.card },
+  segBtnOn: { backgroundColor: C.primary, borderColor: C.primary },
   segDisabled: { opacity: 0.5 },
-  segTxt: { fontSize: 14, fontWeight: '800', color: COLORS.muted },
-  segTxtOn: { color: '#fff' },
+  segTxt: { fontSize: 14, fontWeight: '800', color: C.muted },
+  segTxtOn: { color: COLORS.onPrimary },
 
   switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 },
 
-  pwCard: { marginTop: 22, backgroundColor: '#F7F9FD', borderRadius: 14, borderWidth: 1, borderColor: '#E6EDF7', padding: 14 },
-  pwHead: { fontSize: 15.5, fontWeight: '900', color: COLORS.navy },
-  pwSub: { fontSize: 12, color: COLORS.muted, marginTop: 2, lineHeight: 16 },
-  changeBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 14, height: 48, borderRadius: 12, backgroundColor: COLORS.primary },
-  changeTxt: { color: '#fff', fontWeight: '800', fontSize: 14.5 },
+  pwCard: { marginTop: 22, backgroundColor: COLORS.slate50, borderRadius: 14, borderWidth: 1, borderColor: COLORS.slate50, padding: 14 },
+  pwHead: { fontSize: 15.5, fontWeight: '900', color: C.navy },
+  pwSub: { fontSize: 12, color: C.muted, marginTop: 2, lineHeight: 16 },
+  changeBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 14, height: 48, borderRadius: 12, backgroundColor: C.primary },
+  changeTxt: { color: COLORS.onPrimary, fontWeight: '800', fontSize: 14.5 },
 
-  resetBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 10, height: 46, borderRadius: 12, borderWidth: 1, borderColor: '#F6C9C9', backgroundColor: COLORS.redBg },
-  resetTxt: { color: COLORS.red, fontWeight: '800', fontSize: 14 },
+  resetBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 10, height: 46, borderRadius: 12, borderWidth: 1, borderColor: COLORS.redLine, backgroundColor: C.redBg },
+  resetTxt: { color: C.red, fontWeight: '800', fontSize: 14 },
 
-  saveBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 18, height: 52, borderRadius: 14, backgroundColor: COLORS.primary },
-  saveTxt: { color: '#fff', fontWeight: '800', fontSize: 15.5 },
+  saveBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 18, height: 52, borderRadius: 14, backgroundColor: C.primary },
+  saveTxt: { color: COLORS.onPrimary, fontWeight: '800', fontSize: 15.5 },
 
   okWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 28, backgroundColor: 'rgba(15,23,42,0.5)' },
-  okCard: { width: '100%', maxWidth: 340, backgroundColor: '#fff', borderRadius: 22, paddingHorizontal: 22, paddingTop: 24, paddingBottom: 18, alignItems: 'center', ...SHADOW },
-  okIcon: { width: 68, height: 68, borderRadius: 34, backgroundColor: '#16A34A', alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
-  okTitle: { fontSize: 20, fontWeight: '900', color: COLORS.navy, marginBottom: 6 },
-  okMsg: { fontSize: 14, color: COLORS.muted, textAlign: 'center', lineHeight: 20, marginBottom: 20 },
-  okBtn: { alignSelf: 'stretch', height: 48, borderRadius: 12, backgroundColor: COLORS.primary, alignItems: 'center', justifyContent: 'center' },
-  okBtnTxt: { color: '#fff', fontWeight: '800', fontSize: 15.5 },
-});
+  okCard: { width: '100%', maxWidth: 340, backgroundColor: COLORS.card, borderRadius: 22, paddingHorizontal: 22, paddingTop: 24, paddingBottom: 18, alignItems: 'center', ...SHADOW },
+  okIcon: { width: 68, height: 68, borderRadius: 34, backgroundColor: COLORS.green, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
+  okTitle: { fontSize: 20, fontWeight: '900', color: C.navy, marginBottom: 6 },
+  okMsg: { fontSize: 14, color: C.muted, textAlign: 'center', lineHeight: 20, marginBottom: 20 },
+  okBtn: { alignSelf: 'stretch', height: 48, borderRadius: 12, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
+  okBtnTxt: { color: COLORS.onPrimary, fontWeight: '800', fontSize: 15.5 },
+}));

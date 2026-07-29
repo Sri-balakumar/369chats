@@ -3,7 +3,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Icon from './Icon';
-import { COLORS, SHADOW, RADIUS, SPACING } from '../../theme';
+import { COLORS, SHADOW, RADIUS, SPACING, themed } from '../../theme';
 
 export default function SectionCard({ color = COLORS.primary, icon, iconLib, title, children, style }) {
   return (
@@ -17,16 +17,16 @@ export default function SectionCard({ color = COLORS.primary, icon, iconLib, tit
   );
 }
 
-const s = StyleSheet.create({
+const s = themed((C) => ({
   card: {
-    backgroundColor: '#fff', borderRadius: RADIUS.xl, marginBottom: 16,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.xl, marginBottom: 16,
     borderLeftWidth: 4, overflow: 'hidden', ...SHADOW,
   },
   head: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
     paddingHorizontal: SPACING.screen, paddingVertical: SPACING.lg,
-    borderBottomWidth: 1, borderBottomColor: COLORS.line,
+    borderBottomWidth: 1, borderBottomColor: C.line,
   },
-  title: { fontSize: 14.5, fontWeight: '800', color: COLORS.navy },
+  title: { fontSize: 14.5, fontWeight: '800', color: C.navy },
   body: { padding: SPACING.screen },
-});
+}));

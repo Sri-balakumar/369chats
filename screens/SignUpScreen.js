@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Svg, { Path } from 'react-native-svg';
-import { COLORS } from '../theme';
+import { COLORS, themed } from '../theme';
 import GoogleIcon from '../components/GoogleIcon';
 import { COUNTRIES, DEFAULT_COUNTRY, toLocalDigits } from '../utils/countryMobile';
 
@@ -143,7 +143,7 @@ export default function SignUpScreen({ onDone, goLogin }) {
           </TouchableOpacity>
 
           <TouchableOpacity style={[s.primaryBtn, loading && { opacity: 0.7 }]} onPress={signUp} activeOpacity={0.9} disabled={loading}>
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryTxt}>Sign Up</Text>}
+            {loading ? <ActivityIndicator color={COLORS.onPrimary} /> : <Text style={s.primaryTxt}>Sign Up</Text>}
           </TouchableOpacity>
 
           {/* OR */}
@@ -206,34 +206,34 @@ export default function SignUpScreen({ onDone, goLogin }) {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: COLORS.bg },
+const s = themed((C) => ({
+  root: { flex: 1, backgroundColor: C.bg },
   topRow: { paddingHorizontal: 18 },
-  back: { fontSize: 40, color: COLORS.navy, lineHeight: 40, marginTop: -6 },
+  back: { fontSize: 40, color: C.navy, lineHeight: 40, marginTop: -6 },
 
   logoWrap: { alignItems: 'center', marginTop: 2 },
   logo369img: { width: 210, height: 130 },
 
-  title: { fontSize: 25, fontWeight: '900', color: COLORS.navy, textAlign: 'center', marginTop: 6 },
-  sub: { fontSize: 14, color: COLORS.muted, textAlign: 'center', marginTop: 8, lineHeight: 20 },
+  title: { fontSize: 25, fontWeight: '900', color: C.navy, textAlign: 'center', marginTop: 6 },
+  sub: { fontSize: 14, color: C.muted, textAlign: 'center', marginTop: 8, lineHeight: 20 },
 
   form: { paddingHorizontal: 24, marginTop: 20 },
   field: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderWidth: 1.5, borderColor: COLORS.line,
+    flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.card, borderWidth: 1.5, borderColor: C.line,
     borderRadius: 14, paddingHorizontal: 15, marginBottom: 14, height: 56,
   },
   fIcon: { fontSize: 16, marginRight: 10 },
-  input: { flex: 1, fontSize: 15.5, color: COLORS.ink, height: '100%' },
+  input: { flex: 1, fontSize: 15.5, color: C.ink, height: '100%' },
   eye: { fontSize: 18 },
-  fieldError: { borderColor: COLORS.red },
+  fieldError: { borderColor: C.red },
 
   // Country selector inside the phone field
   ccBtn: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, height: '100%' },
-  ccCode: { fontSize: 15.5, fontWeight: '800', color: COLORS.navy },
-  ccCaret: { fontSize: 11, color: COLORS.muted, marginLeft: 4 },
-  ccDivider: { width: 1, height: 26, backgroundColor: COLORS.line },
-  okTick: { color: COLORS.green, fontSize: 16, fontWeight: '900', marginLeft: 6 },
-  errHint: { color: COLORS.red, fontSize: 12.5, marginTop: -8, marginBottom: 12, marginLeft: 6 },
+  ccCode: { fontSize: 15.5, fontWeight: '800', color: C.navy },
+  ccCaret: { fontSize: 11, color: C.muted, marginLeft: 4 },
+  ccDivider: { width: 1, height: 26, backgroundColor: C.line },
+  okTick: { color: C.green, fontSize: 16, fontWeight: '900', marginLeft: 6 },
+  errHint: { color: C.red, fontSize: 12.5, marginTop: -8, marginBottom: 12, marginLeft: 6 },
 
   // Country picker modal
   // Centered dialog (not a bottom sheet) — matches the app's other popups.
@@ -242,52 +242,52 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', padding: 26,
   },
   modalSheet: {
-    width: '100%', maxWidth: 360, backgroundColor: '#fff', borderRadius: 20,
+    width: '100%', maxWidth: 360, backgroundColor: COLORS.card, borderRadius: 20,
     maxHeight: '70%', paddingBottom: 12, overflow: 'hidden',
   },
   modalHead: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: COLORS.line,
+    paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: C.line,
   },
-  modalTitle: { fontSize: 17, fontWeight: '800', color: COLORS.navy },
-  modalClose: { fontSize: 18, color: COLORS.muted, fontWeight: '700' },
+  modalTitle: { fontSize: 17, fontWeight: '800', color: C.navy },
+  modalClose: { fontSize: 18, color: C.muted, fontWeight: '700' },
   ccRow: {
     flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14,
-    borderBottomWidth: 1, borderBottomColor: '#F1F4F9',
+    borderBottomWidth: 1, borderBottomColor: COLORS.slate100,
   },
-  ccRowOn: { backgroundColor: '#F0F5FF' },
-  ccRowName: { flex: 1, fontSize: 15, color: COLORS.ink, fontWeight: '600' },
-  ccRowMeta: { fontSize: 12.5, color: COLORS.muted, marginRight: 8 },
-  ccRowTick: { color: COLORS.primary, fontSize: 15, fontWeight: '900' },
+  ccRowOn: { backgroundColor: COLORS.slate50 },
+  ccRowName: { flex: 1, fontSize: 15, color: C.ink, fontWeight: '600' },
+  ccRowMeta: { fontSize: 12.5, color: C.muted, marginRight: 8 },
+  ccRowTick: { color: C.primary, fontSize: 15, fontWeight: '900' },
 
   termsRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2, marginBottom: 18 },
   box: {
-    width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: COLORS.line,
-    alignItems: 'center', justifyContent: 'center', marginRight: 10, backgroundColor: '#fff',
+    width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: C.line,
+    alignItems: 'center', justifyContent: 'center', marginRight: 10, backgroundColor: COLORS.card,
   },
-  boxOn: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  tick: { color: '#fff', fontSize: 14, fontWeight: '900' },
-  termsTxt: { flex: 1, fontSize: 13.5, color: COLORS.muted, lineHeight: 19 },
-  link: { color: COLORS.link, fontWeight: '700' },
+  boxOn: { backgroundColor: C.primary, borderColor: C.primary },
+  tick: { color: COLORS.onPrimary, fontSize: 14, fontWeight: '900' },
+  termsTxt: { flex: 1, fontSize: 13.5, color: C.muted, lineHeight: 19 },
+  link: { color: C.link, fontWeight: '700' },
 
-  primaryBtn: { backgroundColor: COLORS.primary, borderRadius: 14, height: 56, alignItems: 'center', justifyContent: 'center' },
-  primaryTxt: { color: '#fff', fontSize: 17, fontWeight: '800', letterSpacing: 0.3 },
+  primaryBtn: { backgroundColor: C.primary, borderRadius: 14, height: 56, alignItems: 'center', justifyContent: 'center' },
+  primaryTxt: { color: COLORS.onPrimary, fontSize: 17, fontWeight: '800', letterSpacing: 0.3 },
 
   orRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 18 },
-  orLine: { flex: 1, height: 1, backgroundColor: COLORS.line },
-  or: { marginHorizontal: 14, color: COLORS.muted, fontSize: 13, fontWeight: '600' },
+  orLine: { flex: 1, height: 1, backgroundColor: C.line },
+  or: { marginHorizontal: 14, color: C.muted, fontSize: 13, fontWeight: '600' },
 
   socialBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12,
-    backgroundColor: '#fff', borderWidth: 1.5, borderColor: COLORS.line, borderRadius: 14, height: 56,
+    backgroundColor: COLORS.card, borderWidth: 1.5, borderColor: C.line, borderRadius: 14, height: 56,
   },
-  socialTxt: { fontSize: 15.5, fontWeight: '700', color: COLORS.link },
+  socialTxt: { fontSize: 15.5, fontWeight: '700', color: C.link },
 
   bottomRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 20 },
-  bottomTxt: { color: COLORS.muted, fontSize: 14 },
-  bottomLink: { color: COLORS.link, fontSize: 14, fontWeight: '800' },
+  bottomTxt: { color: C.muted, fontSize: 14 },
+  bottomLink: { color: C.link, fontSize: 14, fontWeight: '800' },
 
   footer: { height: 110, justifyContent: 'flex-end', marginTop: 20 },
   alphaRow: { alignItems: 'center', justifyContent: 'center', paddingBottom: 40 },
   alphaImg: { width: 170, height: 46 },
-});
+}));

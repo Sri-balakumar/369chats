@@ -9,12 +9,12 @@
 // into "Only a group admin can do that."
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Switch, Share,
+  View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Share,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, SHADOW, RADIUS, SPACING, TOP } from '../theme';
-import { Screen, Loader, EmptyState, Avatar, Sheet } from '../components/ui';
+import { COLORS, SHADOW, RADIUS, SPACING, TOP, themed } from '../theme';
+import { Screen, Loader, EmptyState, Avatar, Sheet, Switch } from '../components/ui';
 import * as chat from '../services/chat';
 import { createLogger } from '../api/logger';
 
@@ -239,7 +239,7 @@ export default function GroupManageScreen({ conversation, onBack, onChanged }) {
                 <Avatar name={c.name} uri={c.avatarUrl} size={38} />
                 <Text style={s.pickName} numberOfLines={1}>{c.name}</Text>
                 <View style={[s.check, on && s.checkOn]}>
-                  {on && <Ionicons name="checkmark" size={14} color="#fff" />}
+                  {on && <Ionicons name="checkmark" size={14} color={COLORS.onPrimary} />}
                 </View>
               </TouchableOpacity>
             );
@@ -283,36 +283,36 @@ function Item({ icon, label, value, onPress }) {
   );
 }
 
-const s = StyleSheet.create({
+const s = themed((C) => ({
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingBottom: SPACING.md,
   },
-  headerTitle: { flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '900', color: COLORS.navy },
+  headerTitle: { flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '900', color: C.navy },
   iconBtn: {
-    width: 40, height: 40, borderRadius: RADIUS.lg, backgroundColor: '#fff',
+    width: 40, height: 40, borderRadius: RADIUS.lg, backgroundColor: COLORS.card,
     alignItems: 'center', justifyContent: 'center', ...SHADOW,
   },
 
   hero: { alignItems: 'center', paddingVertical: SPACING.xl, gap: SPACING.xs },
-  title: { fontSize: 20, fontWeight: '900', color: COLORS.navy, textAlign: 'center', paddingHorizontal: 30 },
-  sub: { fontSize: 13.5, color: COLORS.slate500, fontWeight: '600' },
+  title: { fontSize: 20, fontWeight: '900', color: C.navy, textAlign: 'center', paddingHorizontal: 30 },
+  sub: { fontSize: 13.5, color: C.slate500, fontWeight: '600' },
 
   card: {
     marginHorizontal: SPACING.screen, marginBottom: SPACING.screen,
-    backgroundColor: '#fff', borderRadius: RADIUS.xl, borderWidth: 1, borderColor: COLORS.line,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.xl, borderWidth: 1, borderColor: C.line,
     overflow: 'hidden', ...SHADOW,
   },
   item: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.screen,
     paddingHorizontal: SPACING.screen, paddingVertical: SPACING.screen,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.line,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
   },
-  itemLabel: { fontSize: 12, color: COLORS.slate500, fontWeight: '700' },
-  itemValue: { fontSize: 14.5, color: COLORS.ink, fontWeight: '600', marginTop: 2 },
+  itemLabel: { fontSize: 12, color: C.slate500, fontWeight: '700' },
+  itemValue: { fontSize: 14.5, color: C.ink, fontWeight: '600', marginTop: 2 },
 
   section: {
-    fontSize: 12.5, fontWeight: '900', color: COLORS.muted, letterSpacing: 0.8,
+    fontSize: 12.5, fontWeight: '900', color: C.muted, letterSpacing: 0.8,
     paddingHorizontal: SPACING.xl, marginBottom: SPACING.sm, textTransform: 'uppercase',
   },
   sectionRow: {
@@ -321,49 +321,49 @@ const s = StyleSheet.create({
   },
   addBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
-    backgroundColor: '#EAF1FE', borderRadius: RADIUS.pill, paddingHorizontal: 12, paddingVertical: 6,
+    backgroundColor: COLORS.tintBg, borderRadius: RADIUS.pill, paddingHorizontal: 12, paddingVertical: 6,
   },
-  addTxt: { fontSize: 12.5, fontWeight: '800', color: COLORS.primary },
+  addTxt: { fontSize: 12.5, fontWeight: '800', color: C.primary },
 
   permRow: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.md,
     paddingHorizontal: SPACING.screen, paddingVertical: SPACING.md,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.line,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
   },
-  permLabel: { fontSize: 14, color: COLORS.ink, fontWeight: '600' },
-  permOff: { fontSize: 11.5, color: COLORS.slate500, marginTop: 2 },
+  permLabel: { fontSize: 14, color: C.ink, fontWeight: '600' },
+  permOff: { fontSize: 11.5, color: C.slate500, marginTop: 2 },
 
   member: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.lg,
     paddingHorizontal: SPACING.screen, paddingVertical: SPACING.md,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.line,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
   },
-  memberName: { fontSize: 14.5, fontWeight: '700', color: COLORS.ink },
-  memberMeta: { fontSize: 12, color: COLORS.slate500, marginTop: 1 },
-  pill: { backgroundColor: '#E0ECFF', borderRadius: RADIUS.sm, paddingHorizontal: 8, paddingVertical: 3 },
-  pillTxt: { fontSize: 10.5, fontWeight: '900', color: COLORS.primary },
+  memberName: { fontSize: 14.5, fontWeight: '700', color: C.ink },
+  memberMeta: { fontSize: 12, color: C.slate500, marginTop: 1 },
+  pill: { backgroundColor: COLORS.slate50, borderRadius: RADIUS.sm, paddingHorizontal: 8, paddingVertical: 3 },
+  pillTxt: { fontSize: 10.5, fontWeight: '900', color: C.primary },
 
-  fieldLabel: { fontSize: 12.5, fontWeight: '800', color: COLORS.muted, marginTop: SPACING.md, marginBottom: SPACING.xs },
+  fieldLabel: { fontSize: 12.5, fontWeight: '800', color: C.muted, marginTop: SPACING.md, marginBottom: SPACING.xs },
   input: {
-    backgroundColor: COLORS.slate50, borderRadius: RADIUS.md, borderWidth: 1, borderColor: COLORS.line,
-    paddingHorizontal: SPACING.screen, height: 46, fontSize: 15, color: COLORS.ink,
+    backgroundColor: C.slate50, borderRadius: RADIUS.md, borderWidth: 1, borderColor: C.line,
+    paddingHorizontal: SPACING.screen, height: 46, fontSize: 15, color: C.ink,
   },
   primaryBtn: {
-    height: 50, borderRadius: RADIUS.lg, backgroundColor: COLORS.primary,
+    height: 50, borderRadius: RADIUS.lg, backgroundColor: C.primary,
     alignItems: 'center', justifyContent: 'center', marginTop: SPACING.screen, marginBottom: SPACING.sm,
   },
-  primaryTxt: { color: '#fff', fontSize: 15.5, fontWeight: '800' },
+  primaryTxt: { color: COLORS.onPrimary, fontSize: 15.5, fontWeight: '800' },
 
   pickRow: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.lg,
     paddingVertical: SPACING.md, paddingHorizontal: SPACING.xs,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.line,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
   },
-  pickName: { flex: 1, fontSize: 15, fontWeight: '700', color: COLORS.ink },
+  pickName: { flex: 1, fontSize: 15, fontWeight: '700', color: C.ink },
   check: {
-    width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: COLORS.line,
+    width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: C.line,
     alignItems: 'center', justifyContent: 'center',
   },
-  checkOn: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  emptyTxt: { fontSize: 13.5, color: COLORS.slate500, padding: SPACING.xl, textAlign: 'center' },
-});
+  checkOn: { backgroundColor: C.primary, borderColor: C.primary },
+  emptyTxt: { fontSize: 13.5, color: C.slate500, padding: SPACING.xl, textAlign: 'center' },
+}));

@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Card from './Card';
-import { COLORS, SPACING } from '../../theme';
+import { COLORS, SPACING, themed } from '../../theme';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -43,14 +43,14 @@ export default function Accordion({ title, sub, right, children, defaultOpen = f
   );
 }
 
-const s = StyleSheet.create({
+const s = themed((C) => ({
   // Padding moves to the head/body so the divider can span the full card width.
   card: { padding: 0, overflow: 'hidden' },
   head: { flexDirection: 'row', alignItems: 'center', padding: SPACING.screen },
-  title: { fontSize: 15, fontWeight: '800', color: COLORS.slate900 },
-  sub: { fontSize: 12, color: COLORS.slate500, marginTop: 2 },
+  title: { fontSize: 15, fontWeight: '800', color: C.slate900 },
+  sub: { fontSize: 12, color: C.slate500, marginTop: 2 },
   body: {
-    borderTopWidth: 1, borderTopColor: COLORS.slate100,
+    borderTopWidth: 1, borderTopColor: C.slate100,
     paddingHorizontal: SPACING.screen, paddingVertical: SPACING.sm,
   },
-});
+}));

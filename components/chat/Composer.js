@@ -20,7 +20,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as chat from '../../services/chat';
-import { COLORS, RADIUS, SPACING } from '../../theme';
+import { COLORS, RADIUS, SPACING, themed } from '../../theme';
 
 const TYPING_THROTTLE_MS = 2500;
 
@@ -36,10 +36,12 @@ const EMOJI = [
 
 export default function Composer({
   onSend, onAttach, onCamera, onVoice, onTyping,
-  sending, replyTo, onCancelReply, disabled, disabledReason,
+  sending, uploadPct, replyTo, onCancelReply, disabled, disabledReason,
   emojiOpen, onToggleEmoji, panelHeight = 280,
+  // Per-chat draft: what was typed and never sent, restored on the way back in.
+  initialDraft = '', onDraftChange,
 }) {
-  const [text, setText] = useState('');
+  const [text, setText] = useState(initialDraft || '');
   const [preview, setPreview] = useState(null);       // compose-time link card
   const [previewBusy, setPreviewBusy] = useState(false);
   const lastTypingRef = useRef(0);
@@ -48,6 +50,10 @@ export default function Composer({
   const previewFor = useRef(null);   // the URL the current preview belongs to
 
   useEffect(() => () => clearTimeout(previewTimer.current), []);
+
+  // The composer is remounted per conversation (keyed in the thread), so this
+  // seeds from the stored draft once rather than fighting the user's typing.
+  useEffect(() => { onDraftChange?.(text); }, [text]);
 
   // Replying focuses the field — the user's next action is always to type.
   useEffect(() => { if (replyTo) inputRef.current?.focus(); }, [replyTo]);
@@ -219,8 +225,12 @@ export default function Composer({
           activeOpacity={0.85}
         >
           {sending
-            ? <ActivityIndicator color="#fff" size="small" />
-            : <Ionicons name={hasText ? 'send' : 'mic'} size={hasText ? 19 : 22} color="#fff" />}
+            ? (uploadPct > 0 && uploadPct < 100
+              // A percentage beats a spinner on a 20 MB upload: it says the app
+              // is working AND roughly how long is left.
+              ? <Text style={s.pct}>{uploadPct}%</Text>
+              : <ActivityIndicator color={COLORS.onPrimary} size="small" />)
+            : <Ionicons name={hasText ? 'send' : 'mic'} size={hasText ? 19 : 22} color={COLORS.onPrimary} />}
         </TouchableOpacity>
       </View>
 
@@ -255,7 +265,7 @@ export default function Composer({
   );
 }
 
-const s = StyleSheet.create({
+const s = themed((C) => ({
   wrap: { backgroundColor: 'transparent', paddingBottom: SPACING.sm },
   bar: {
     flexDirection: 'row', alignItems: 'flex-end', gap: SPACING.sm,
@@ -265,65 +275,66 @@ const s = StyleSheet.create({
   // is what makes the WhatsApp composer feel light.
   pill: {
     flex: 1, flexDirection: 'row', alignItems: 'flex-end', gap: SPACING.xs,
-    backgroundColor: '#fff', borderRadius: RADIUS.sheet,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.sheet,
     paddingHorizontal: SPACING.md, paddingVertical: 5, minHeight: 48,
-    shadowColor: '#1e293b', shadowOpacity: 0.06, shadowRadius: 6,
+    shadowColor: COLORS.shadow, shadowOpacity: 0.06, shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 }, elevation: 2,
   },
   pillBtn: { paddingBottom: 7, paddingHorizontal: 2 },
   input: {
     flex: 1, maxHeight: 120, minHeight: 38,
     paddingHorizontal: SPACING.xs, paddingTop: 9, paddingBottom: 9,
-    fontSize: 15.5, color: COLORS.ink,
+    fontSize: 15.5, color: C.ink,
   },
+  pct: { color: C.onPrimary, fontSize: 11.5, fontWeight: '900' },
   round: {
-    width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.primary,
+    width: 48, height: 48, borderRadius: 24, backgroundColor: C.primary,
     alignItems: 'center', justifyContent: 'center',
-    shadowColor: COLORS.primary, shadowOpacity: 0.3, shadowRadius: 6,
+    shadowColor: C.primary, shadowOpacity: 0.3, shadowRadius: 6,
     shadowOffset: { width: 0, height: 3 }, elevation: 3,
   },
 
   preview: {
     flexDirection: 'row', alignItems: 'center',
     marginHorizontal: SPACING.md, marginTop: SPACING.sm,
-    backgroundColor: '#fff', borderRadius: RADIUS.md,
-    borderLeftWidth: 3, borderLeftColor: COLORS.link,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.md,
+    borderLeftWidth: 3, borderLeftColor: C.link,
     overflow: 'hidden',
   },
-  previewImg: { width: 56, height: 56, backgroundColor: COLORS.slate100 },
+  previewImg: { width: 56, height: 56, backgroundColor: C.slate100 },
   // Column: title / desc / url stack. The loading row overrides to a row below.
   previewBody: { flex: 1, paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm, gap: 1 },
   previewLoading: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
-  previewTitle: { fontSize: 12.5, fontWeight: '800', color: COLORS.ink },
-  previewDesc: { fontSize: 11.5, color: COLORS.slate500 },
-  previewUrl: { fontSize: 10.5, color: COLORS.link },
+  previewTitle: { fontSize: 12.5, fontWeight: '800', color: C.ink },
+  previewDesc: { fontSize: 11.5, color: C.slate500 },
+  previewUrl: { fontSize: 10.5, color: C.link },
   previewClose: { padding: SPACING.md },
 
   replyBar: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.md,
     marginHorizontal: SPACING.md, marginTop: SPACING.sm,
-    backgroundColor: '#fff', borderRadius: RADIUS.md,
-    borderLeftWidth: 3, borderLeftColor: COLORS.primary,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.md,
+    borderLeftWidth: 3, borderLeftColor: C.primary,
     paddingHorizontal: SPACING.lg, paddingVertical: SPACING.sm,
   },
   replyBody: { flex: 1 },
-  replyAuthor: { fontSize: 12, fontWeight: '800', color: COLORS.primary },
-  replyPreview: { fontSize: 12.5, color: COLORS.slate500 },
+  replyAuthor: { fontSize: 12, fontWeight: '800', color: C.primary },
+  replyPreview: { fontSize: 12.5, color: C.slate500 },
 
-  emojiPanel: { backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: COLORS.line },
+  emojiPanel: { backgroundColor: COLORS.card, borderTopWidth: 1, borderTopColor: C.line },
   emojiGrid: { flexDirection: 'row', flexWrap: 'wrap', paddingBottom: 44 },
   emojiCell: { width: '12.5%', alignItems: 'center', paddingVertical: 9 },
   emoji: { fontSize: 26 },
   emojiBack: {
     position: 'absolute', right: SPACING.screen, bottom: SPACING.md,
-    width: 42, height: 34, borderRadius: RADIUS.md, backgroundColor: COLORS.slate100,
+    width: 42, height: 34, borderRadius: RADIUS.md, backgroundColor: C.slate100,
     alignItems: 'center', justifyContent: 'center',
   },
 
   disabled: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm,
-    borderTopWidth: 1, borderTopColor: COLORS.line, backgroundColor: COLORS.slate50,
+    borderTopWidth: 1, borderTopColor: C.line, backgroundColor: C.slate50,
     paddingVertical: SPACING.screen,
   },
-  disabledTxt: { fontSize: 13, color: COLORS.slate500, fontWeight: '600' },
-});
+  disabledTxt: { fontSize: 13, color: C.slate500, fontWeight: '600' },
+}));

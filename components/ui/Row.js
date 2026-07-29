@@ -1,7 +1,7 @@
 // Row — a label/value line for detail panels. Label left, value right, bolder.
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { COLORS, SPACING } from '../../theme';
+import { COLORS, SPACING, themed } from '../../theme';
 
 export default function Row({ label, value, style }) {
   return (
@@ -12,8 +12,8 @@ export default function Row({ label, value, style }) {
   );
 }
 
-const s = StyleSheet.create({
+const s = themed((C) => ({
   row: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: SPACING.xs },
-  label: { fontSize: 14, color: COLORS.ink, fontWeight: '600' },
-  value: { fontSize: 14, color: COLORS.navy, fontWeight: '900' },
-});
+  label: { fontSize: 14, color: C.ink, fontWeight: '600' },
+  value: { fontSize: 14, color: C.navy, fontWeight: '900' },
+}));

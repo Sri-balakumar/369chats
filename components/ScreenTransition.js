@@ -5,6 +5,7 @@
 // the same for every screen and every role.
 import React, { useRef, useEffect } from 'react';
 import { Animated, Easing, StyleSheet } from 'react-native';
+import { themed } from '../theme';
 
 export default function ScreenTransition({ screenKey, children, style }) {
   const anim = useRef(new Animated.Value(1)).current;
@@ -38,7 +39,8 @@ export default function ScreenTransition({ screenKey, children, style }) {
   );
 }
 
-const styles = StyleSheet.create({
-  // Base colour matches the app shell so the fade-in never flashes white.
-  fill: { flex: 1, backgroundColor: '#EEF2FB' },
-});
+const styles = themed((C) => ({
+  // Base colour matches the app shell so the fade-in never flashes the wrong
+  // colour — which on dark would be a full-screen white strobe on every nav.
+  fill: { flex: 1, backgroundColor: C.shellAlt },
+}));

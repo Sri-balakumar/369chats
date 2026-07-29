@@ -13,7 +13,7 @@ $o369-line: var(--o369-line, #E6EDF5);
     // ---- theme variables (defaults = Ocean / 369 brand) ----
     --o369-brand: #1F5F9E; --o369-brand-deep: #16406e;
     --o369-accent: #F47A20; --o369-accent-deep: #E85D1B; --o369-wall: #EEF3F8;
-    // Surface/text tokens (light defaults) — flipped as a set by .o369-dark below.
+    // Surface/text tokens. The client is light-only; accents override brand/accent/wall.
     --o369-ground:#F6F8FB; --o369-panel:#FFFFFF; --o369-field:#F2F5F9;
     --o369-line:#E6EDF5; --o369-grey:#8A94A3;
     --o369-text:#141B24; --o369-text2:#5A6675;
@@ -1294,45 +1294,4 @@ $o369-green-deep: #0E8F53;
         position: static; width: 340px; max-width: 340px; box-shadow: none;
         border-left: 1px solid $o369-line;
     }
-}
-
-/* ===================================================================== */
-/* DARK MODE — flips the surface/text tokens as a set, plus the handful  */
-/* of surfaces that hardcode a light colour. Light mode is untouched.    */
-/* ===================================================================== */
-.o369.o369-dark {
-    --o369-ground:#0A0E13; --o369-panel:#141B22; --o369-field:#0E151D;
-    --o369-line:#232E3A; --o369-grey:#7C8896; --o369-wall:#1B2531;
-    --o369-text:#E7ECF3; --o369-text2:#9AA7B6;
-    --o369-ownbg:#1C3A57; --o369-owntext:#DDEBF8; --o369-convbg:#0C1218; --o369-accent-soft:#17293A; --o369-inbg:#202A35;
-    background: var(--o369-ground); color: var(--o369-text);
-
-    /* own message bubble (base uses color-mix with #fff → stays light) */
-    .o369-bubble.o369-out { background: var(--o369-ownbg); color: var(--o369-owntext); }
-    .o369-out .o369-btime { color: color-mix(in srgb, var(--o369-owntext) 62%, transparent); }
-    .o369-out .o369-quote { background: rgba(0,0,0,.22); }
-    .o369-out .o369-caret { color: #cfe0f2; background: linear-gradient(285deg, var(--o369-ownbg) 55%, transparent); }
-
-    /* conversation wallpaper */
-    .o369-right { background-color: var(--o369-convbg);
-        background-image: radial-gradient(rgba(255,255,255,.035) 1px, transparent 1px); }
-    .o369-row.o369-active { background: #16283a; }
-    .o369-row.o369-active .o369-rowcaret { background: linear-gradient(270deg, #16283a 62%, rgba(22,40,58,0)); }
-
-    /* light-grey fills that remain hardcoded elsewhere → tone them down */
-    .o369-datesep span { border: 1px solid var(--o369-line); }
-    .o369-search input::placeholder, .o369-input input::placeholder { color: var(--o369-grey); }
-    input, textarea, select { color: var(--o369-text); }
-    .o369-drawerprofile, .o369-drawersection { border-color: var(--o369-line); }
-
-    /* semantic-coloured surfaces that hardcode a light tint */
-    .o369-notifbanner { background: #12211a; border-color: #234634; }
-    .o369-nb-txt { color: #a9d8ba; } .o369-nb-ico { color: #37c979; }
-    .o369-blockbar { background: #291513; border-color: #4a221e; color: #f0a79e; }
-    .o369-linkfav { background: #22303c; }
-    .o369-linkico, .o369-mtab-on, .o369-circleico { background: var(--o369-accent-soft) !important; }
-    .o369-react-mine { background: #3a2a1c; }
-    .o369-pinbar { background: #241d12; border-color: #3a2f1a; }
-    .o369-hl, mark.o369-hl { background: #6a5300; color: #ffe08a; }
-    .o369-railbadge { box-shadow: 0 0 0 2px var(--o369-panel); }
 }

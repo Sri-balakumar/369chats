@@ -15,7 +15,7 @@ import {
   RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync,
 } from 'expo-audio';
 import * as FileSystem from 'expo-file-system/legacy';
-import { COLORS, RADIUS, SPACING } from '../../theme';
+import { COLORS, RADIUS, SPACING, themed } from '../../theme';
 import { createLogger } from '../../api/logger';
 
 const log = createLogger('Voice');
@@ -200,38 +200,38 @@ export default function VoiceRecorder({ onCancel, onSend, sending }) {
         style={[s.round, (sending || starting) && { backgroundColor: COLORS.slate400 }]}
         activeOpacity={0.85}
       >
-        <Ionicons name={previewing ? 'send' : 'stop'} size={previewing ? 19 : 20} color="#fff" />
+        <Ionicons name={previewing ? 'send' : 'stop'} size={previewing ? 19 : 20} color={COLORS.onPrimary} />
       </TouchableOpacity>
     </View>
   );
 }
 
-const s = StyleSheet.create({
+const s = themed((C) => ({
   wrap: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
     paddingHorizontal: SPACING.md, paddingTop: SPACING.sm, paddingBottom: SPACING.sm,
   },
   iconBtn: {
-    width: 42, height: 42, borderRadius: 21, backgroundColor: '#fff',
+    width: 42, height: 42, borderRadius: 21, backgroundColor: COLORS.card,
     alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#1e293b', shadowOpacity: 0.06, shadowRadius: 6,
+    shadowColor: COLORS.shadow, shadowOpacity: 0.06, shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 }, elevation: 2,
   },
   middle: {
     flex: 1, flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
-    backgroundColor: '#fff', borderRadius: RADIUS.sheet, height: 48,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.sheet, height: 48,
     paddingHorizontal: SPACING.lg,
-    shadowColor: '#1e293b', shadowOpacity: 0.06, shadowRadius: 6,
+    shadowColor: COLORS.shadow, shadowOpacity: 0.06, shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 }, elevation: 2,
   },
-  dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: COLORS.red },
-  time: { fontSize: 13.5, fontWeight: '800', color: COLORS.ink, minWidth: 42 },
+  dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: C.red },
+  time: { fontSize: 13.5, fontWeight: '800', color: C.ink, minWidth: 42 },
   meter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 2, height: 28, overflow: 'hidden' },
-  bar: { flex: 1, borderRadius: 1.5, backgroundColor: COLORS.primary },
+  bar: { flex: 1, borderRadius: 1.5, backgroundColor: C.primary },
   round: {
-    width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.primary,
+    width: 48, height: 48, borderRadius: 24, backgroundColor: C.primary,
     alignItems: 'center', justifyContent: 'center',
-    shadowColor: COLORS.primary, shadowOpacity: 0.3, shadowRadius: 6,
+    shadowColor: C.primary, shadowOpacity: 0.3, shadowRadius: 6,
     shadowOffset: { width: 0, height: 3 }, elevation: 3,
   },
-});
+}));

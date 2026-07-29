@@ -14,7 +14,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
 
-import { COLORS, SHADOW } from '../theme';
+import { COLORS, SHADOW, themed } from '../theme';
 import GradientBackground from '../components/GradientBackground';
 import { createLogger } from '../api/logger';
 import { fetchCompanyBranding, saveCompanyBranding } from '../services/companyBranding';
@@ -158,8 +158,8 @@ export default function CompanyBranding({ onBack }) {
             onPress={onSave} disabled={!dirty || saving} activeOpacity={0.9}
           >
             {saving
-              ? <ActivityIndicator size="small" color="#fff" />
-              : <><Ionicons name="checkmark" size={18} color="#fff" /><Text style={s.saveTxt}>Save Branding</Text></>}
+              ? <ActivityIndicator size="small" color={COLORS.onPrimary} />
+              : <><Ionicons name="checkmark" size={18} color={COLORS.onPrimary} /><Text style={s.saveTxt}>Save Branding</Text></>}
           </TouchableOpacity>
           {savedMsg ? <Text style={s.savedMsg}>✓ {savedMsg}</Text> : null}
         </ScrollView>
@@ -168,44 +168,44 @@ export default function CompanyBranding({ onBack }) {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#EAF2FF' }, // solid fallback under the gradient (no black)
+const s = themed((C) => ({
+  root: { flex: 1, backgroundColor: COLORS.shell }, // solid fallback under the gradient (no black)
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 12, paddingBottom: 12,
   },
-  iconBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', ...SHADOW },
-  hTitle: { flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '800', color: COLORS.navy },
+  iconBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: COLORS.card, alignItems: 'center', justifyContent: 'center', ...SHADOW },
+  hTitle: { flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '800', color: C.navy },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  sub: { fontSize: 12.5, color: COLORS.muted, marginBottom: 14, lineHeight: 18 },
+  sub: { fontSize: 12.5, color: C.muted, marginBottom: 14, lineHeight: 18 },
 
-  card: { backgroundColor: '#fff', borderRadius: 14, padding: 16, ...SHADOW },
-  label: { fontSize: 13, fontWeight: '700', color: COLORS.ink, marginBottom: 6 },
-  input: { borderWidth: 1.5, borderColor: COLORS.line, borderRadius: 10, height: 46, paddingHorizontal: 12, fontSize: 15, color: COLORS.ink, backgroundColor: '#fff' },
-  hint: { fontSize: 12, color: COLORS.muted, marginTop: 10, lineHeight: 17 },
+  card: { backgroundColor: COLORS.card, borderRadius: 14, padding: 16, ...SHADOW },
+  label: { fontSize: 13, fontWeight: '700', color: C.ink, marginBottom: 6 },
+  input: { borderWidth: 1.5, borderColor: C.line, borderRadius: 10, height: 46, paddingHorizontal: 12, fontSize: 15, color: C.ink, backgroundColor: COLORS.card },
+  hint: { fontSize: 12, color: C.muted, marginTop: 10, lineHeight: 17 },
 
   logoBox: {
-    height: 150, borderRadius: 12, borderWidth: 1.5, borderColor: COLORS.line,
-    backgroundColor: '#F7F9FC', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+    height: 150, borderRadius: 12, borderWidth: 1.5, borderColor: C.line,
+    backgroundColor: COLORS.bg, alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
   },
   logoImg: { width: '90%', height: '90%' },
   logoEmpty: { alignItems: 'center', gap: 6 },
-  logoEmptyTxt: { fontSize: 12, color: COLORS.faint, fontWeight: '600' },
+  logoEmptyTxt: { fontSize: 12, color: C.faint, fontWeight: '600' },
 
   logoBtns: { flexDirection: 'row', gap: 10, marginTop: 12 },
   logoBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    borderWidth: 1, borderColor: COLORS.line, borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: 9, backgroundColor: '#fff',
+    borderWidth: 1, borderColor: C.line, borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 9, backgroundColor: COLORS.card,
   },
-  logoBtnDanger: { borderColor: '#FECACA' },
-  logoBtnTxt: { fontSize: 13, fontWeight: '800', color: COLORS.primary },
+  logoBtnDanger: { borderColor: COLORS.redLine },
+  logoBtnTxt: { fontSize: 13, fontWeight: '800', color: C.primary },
 
   saveBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    backgroundColor: COLORS.primary, borderRadius: 12, paddingVertical: 14, marginTop: 18, ...SHADOW,
+    backgroundColor: C.primary, borderRadius: 12, paddingVertical: 14, marginTop: 18, ...SHADOW,
   },
   saveBtnOff: { opacity: 0.5 },
-  saveTxt: { color: '#fff', fontWeight: '800', fontSize: 15 },
-  savedMsg: { textAlign: 'center', color: COLORS.green, fontWeight: '800', marginTop: 12 },
-});
+  saveTxt: { color: COLORS.onPrimary, fontWeight: '800', fontSize: 15 },
+  savedMsg: { textAlign: 'center', color: C.green, fontWeight: '800', marginTop: 12 },
+}));

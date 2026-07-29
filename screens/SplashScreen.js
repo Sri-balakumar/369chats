@@ -10,19 +10,19 @@ import React, { useEffect, useRef } from 'react';
 import { View, Text, Image, Animated, Easing, StyleSheet, Dimensions, StatusBar as RNStatusBar } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Svg, { Path } from 'react-native-svg';
-import { COLORS } from '../theme';
+import { COLORS, themed } from '../theme';
 
 const { width: SW } = Dimensions.get('window');
 const TOP = (RNStatusBar.currentHeight || 0);
 
 // Wheel segments: colour, label, in-segment icon, centre angle (60° apart).
 const SEG = [
-  { label: 'Secure', color: '#F5A623', icon: '🔒', a: -90 },
-  { label: 'Fast', color: '#3F3F46', icon: '⚡', a: -30 },
-  { label: 'Simple', color: '#EC407A', icon: '💡', a: 30 },
-  { label: 'Built for\nyour team', color: '#7E57C2', icon: '👥', a: 90, wide: true },
-  { label: 'Anywhere', color: '#26C6DA', icon: '🌐', a: 150 },
-  { label: 'Reliable', color: '#8BC34A', icon: '🛡️', a: 210 },
+  { label: 'Secure', color: COLORS.amber, icon: '🔒', a: -90 },
+  { label: 'Fast', color: COLORS.slate700, icon: '⚡', a: -30 },
+  { label: 'Simple', color: COLORS.pink, icon: '💡', a: 30 },
+  { label: 'Built for\nyour team', color: COLORS.violet, icon: '👥', a: 90, wide: true },
+  { label: 'Anywhere', color: COLORS.cyan, icon: '🌐', a: 150 },
+  { label: 'Reliable', color: COLORS.green, icon: '🛡️', a: 210 },
 ];
 
 const WSIZE = Math.min(300, SW - 40);   // wheel container
@@ -92,15 +92,15 @@ export default function SplashScreen({ onDone }) {
 
       {/* soft wave under the top */}
       <Svg width="100%" height="46" viewBox="0 0 400 46" preserveAspectRatio="none">
-        <Path d="M0,20 C90,46 150,4 220,20 C300,40 340,10 400,24 L400,46 L0,46 Z" fill="#DCE6FA" />
+        <Path d="M0,20 C90,46 150,4 220,20 C300,40 340,10 400,24 L400,46 L0,46 Z" fill={COLORS.tintBg} />
       </Svg>
 
       {/* ---------- HEADLINE ---------- */}
       <Animated.View style={{ alignItems: 'center', opacity: up, transform: [{ translateY: rise }] }}>
         <Text style={s.h1}>Connect. Share.</Text>
         <Text style={s.h1}>
-          <Text style={{ color: '#17A2C4' }}>Deliver. </Text>
-          <Text style={{ color: '#F5931E' }}>Grow.</Text>
+          <Text style={{ color: COLORS.cyan }}>Deliver. </Text>
+          <Text style={{ color: COLORS.amber }}>Grow.</Text>
         </Text>
         <View style={s.hUnderline} />
       </Animated.View>
@@ -124,9 +124,9 @@ export default function SplashScreen({ onDone }) {
         <Animated.View style={[s.wheel, { transform: [{ rotate }] }]}>
           <Svg width={WHEEL} height={WHEEL} viewBox={`0 0 ${WHEEL} ${WHEEL}`}>
             {/* soft base shadow so the wheel reads as raised */}
-            <Path d={`M${WC},${WC} m-${R},0 a${R},${R} 0 1,0 ${R * 2},0 a${R},${R} 0 1,0 -${R * 2},0`} fill="#C9D6EE" opacity={0.5} />
+            <Path d={`M${WC},${WC} m-${R},0 a${R},${R} 0 1,0 ${R * 2},0 a${R},${R} 0 1,0 -${R * 2},0`} fill={COLORS.line} opacity={0.5} />
             {SEG.map((g) => (
-              <Path key={g.label} d={sector(g.a)} fill={g.color} stroke="#EEF3FC" strokeWidth={5} strokeLinejoin="round" />
+              <Path key={g.label} d={sector(g.a)} fill={g.color} stroke={COLORS.slate50} strokeWidth={5} strokeLinejoin="round" />
             ))}
           </Svg>
           {SEG.map((g) => {
@@ -145,7 +145,7 @@ export default function SplashScreen({ onDone }) {
       {/* ---------- BOTTOM: wave + alphalize ---------- */}
       <View style={s.bottom}>
         <Svg width="100%" height="70" viewBox="0 0 400 70" preserveAspectRatio="none" style={StyleSheet.absoluteFill}>
-          <Path d="M0,30 C90,70 150,6 220,30 C300,58 340,18 400,34 L400,70 L0,70 Z" fill="#DCE6FA" />
+          <Path d="M0,30 C90,70 150,6 220,30 C300,58 340,18 400,34 L400,70 L0,70 Z" fill={COLORS.tintBg} />
         </Svg>
         <Image source={require('../assets/alphalize.png')} style={s.alpha} resizeMode="contain" />
       </View>
@@ -153,19 +153,19 @@ export default function SplashScreen({ onDone }) {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#EBF1FC' },
+const s = themed((C) => ({
+  root: { flex: 1, backgroundColor: COLORS.slate50 },
   top: { alignItems: 'center', paddingTop: TOP + 18, height: 300, justifyContent: 'center' },
   card: {
-    position: 'absolute', width: 54, height: 54, borderRadius: 16, backgroundColor: '#fff',
+    position: 'absolute', width: 54, height: 54, borderRadius: 16, backgroundColor: COLORS.card,
     alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#334155', shadowOpacity: 0.14, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 4,
+    shadowColor: COLORS.slate700, shadowOpacity: 0.14, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 4,
   },
   cardIcon: { fontSize: 24 },
   logo369: { width: Math.min(250, SW - 90), height: 175 },
 
-  h1: { fontSize: 25, fontWeight: '900', color: COLORS.navy, textAlign: 'center', lineHeight: 32 },
-  hUnderline: { width: 70, height: 4, borderRadius: 2, backgroundColor: '#17A2C4', marginTop: 8 },
+  h1: { fontSize: 25, fontWeight: '900', color: C.navy, textAlign: 'center', lineHeight: 32 },
+  hUnderline: { width: 70, height: 4, borderRadius: 2, backgroundColor: COLORS.cyan, marginTop: 8 },
 
   wheel: { position: 'absolute', left: (WSIZE - WHEEL) / 2, top: (WSIZE - WHEEL) / 2, width: WHEEL, height: WHEEL },
   wIcon: { position: 'absolute', fontSize: 22, width: 28, textAlign: 'center' },
@@ -174,11 +174,11 @@ const s = StyleSheet.create({
   label: { fontSize: 12, fontWeight: '800', textAlign: 'center', lineHeight: 15 },
   center: { position: 'absolute', left: C - WC * 0.42, top: C - WC * 0.42, width: WC * 0.84, height: WC * 0.84, alignItems: 'center', justifyContent: 'center' },
   centerCircle: {
-    width: '100%', height: '100%', borderRadius: 999, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#1e293b', shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6,
+    width: '100%', height: '100%', borderRadius: 999, backgroundColor: COLORS.card, alignItems: 'center', justifyContent: 'center',
+    shadowColor: COLORS.shadow, shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6,
   },
-  centerTxt: { fontSize: 24, fontWeight: '900', color: COLORS.navy, letterSpacing: 1 },
+  centerTxt: { fontSize: 24, fontWeight: '900', color: C.navy, letterSpacing: 1 },
 
   bottom: { flex: 1, justifyContent: 'flex-end', alignItems: 'center', minHeight: 90 },
   alpha: { width: 180, height: 50, marginBottom: 20 },
-});
+}));

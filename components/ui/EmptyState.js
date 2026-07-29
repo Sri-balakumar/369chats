@@ -3,14 +3,14 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS, RADIUS, SPACING } from '../../theme';
+import { COLORS, RADIUS, SPACING, themed } from '../../theme';
 
 export default function EmptyState({ icon = 'file-tray-outline', title, sub, onRetry, tone = 'muted' }) {
-  const iconColor = tone === 'error' ? '#EF4444' : COLORS.slate400;
+  const iconColor = tone === 'error' ? COLORS.red : COLORS.slate400;
   return (
     <View style={s.wrap}>
       <Ionicons name={icon} size={44} color={iconColor} />
-      {!!title && <Text style={[s.title, tone === 'error' && { color: '#EF4444' }]}>{title}</Text>}
+      {!!title && <Text style={[s.title, tone === 'error' && { color: COLORS.red }]}>{title}</Text>}
       {!!sub && <Text style={s.sub}>{sub}</Text>}
       {!!onRetry && (
         <TouchableOpacity onPress={onRetry} style={s.retry} activeOpacity={0.85}>
@@ -25,13 +25,13 @@ export default function EmptyState({ icon = 'file-tray-outline', title, sub, onR
 // state fill and centre in the remaining space instead of hugging the top.
 export const emptyWrap = { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 30 };
 
-const s = StyleSheet.create({
+const s = themed((C) => ({
   wrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: SPACING.sm, padding: 30 },
-  title: { fontSize: 16, fontWeight: '800', color: COLORS.muted, textAlign: 'center' },
-  sub: { fontSize: 12.5, color: COLORS.faint, textAlign: 'center' },
+  title: { fontSize: 16, fontWeight: '800', color: C.muted, textAlign: 'center' },
+  sub: { fontSize: 12.5, color: C.faint, textAlign: 'center' },
   retry: {
-    marginTop: SPACING.xs, backgroundColor: COLORS.primary,
+    marginTop: SPACING.xs, backgroundColor: C.primary,
     paddingHorizontal: 22, height: 44, borderRadius: RADIUS.lg, justifyContent: 'center',
   },
-  retryTxt: { color: '#fff', fontSize: 15, fontWeight: '800' },
-});
+  retryTxt: { color: COLORS.onPrimary, fontSize: 15, fontWeight: '800' },
+}));

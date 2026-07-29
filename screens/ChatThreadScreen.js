@@ -7,16 +7,17 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  Platform, ActivityIndicator, Alert, Linking, TextInput, ScrollView,
+  Platform, ActivityIndicator, Alert, Linking, TextInput, ScrollView, Share,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 
-import { COLORS, SHADOW, RADIUS, SPACING, TOP } from '../theme';
-import { Screen, Loader, EmptyState, Avatar, Sheet, MenuPopup, PopupModal } from '../components/ui';
+import { COLORS, SHADOW, RADIUS, SPACING, TOP, themed } from '../theme';
+import { Screen, Loader, EmptyState, Avatar, Sheet, MenuPopup, PopupModal, ConfirmDialog } from '../components/ui';
 import MessageBubble from '../components/chat/MessageBubble';
 import Composer from '../components/chat/Composer';
 import MediaViewer from '../components/chat/MediaViewer';
@@ -26,6 +27,8 @@ import VoiceRecorder from '../components/chat/VoiceRecorder';
 import CameraCaptureModal from '../components/CameraCaptureModal';
 import * as chat from '../services/chat';
 import realtime from '../services/chatRealtime';
+import { draftFor, setDraft, clearDraft } from '../services/drafts';
+import { copyText } from '../utils/clipboard';
 import useKeyboardHeight from '../utils/useKeyboardHeight';
 import openAttachment from '../utils/openAttachment';
 import presenceText from '../utils/presence';
@@ -83,6 +86,11 @@ function toBubble(m) {
     starred: m.starred,
     forwarded: m.forwarded,
     isMeet: m.isMeet,
+    // View-once: the server withholds media_url once it has been opened (and
+    // always for the author), so `hasMedia` is what says whether it can still be
+    // viewed — not `viewOnce` on its own.
+    viewOnce: m.viewOnce,
+    canViewOnce: m.viewOnce && m.hasMedia,
     reactions: m.reactions,
     poll: m.poll,
     link: m.link,
@@ -94,6 +102,16 @@ function toBubble(m) {
 
 // The quick-reaction row. Matches the set the module's web client offers.
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+// The full set behind the + on that row.
+const ALL_REACTIONS = [
+  '👍', '👎', '❤️', '🔥', '🎉', '👏', '🙏', '💯',
+  '😂', '🤣', '😅', '😊', '😍', '😎', '🤔', '😐',
+  '😮', '😢', '😭', '😡', '🥳', '🤝', '💪', '✅',
+  '❌', '⚠️', '👀', '🚀', '⭐', '💡', '⏰', '📌',
+];
+
+const HIT = { top: 12, bottom: 12, left: 8, right: 8 };
 
 // /chat/pin_message accepts only these four; anything else is rejected.
 const PIN_DAYS = [
@@ -113,6 +131,12 @@ const MUTE_FOR = [
 
 export default function ChatThreadScreen({
   conversation, onBack, onOpenInfo, onOpenSearch, onOpenMedia, onOpenStarred,
+  // Admin-only Google Meet setup — offered from the ⋮ when Meet isn't connected.
+  onOpenGmeet,
+  // Reply privately: hand the 1:1 + the quote back up so App can switch chats.
+  onReplyPrivately, initialQuote,
+  // Message id to open at and flash — set when arriving from a search hit.
+  focusMessageId,
 }) {
   const convId = conversation?.id;
   const [messages, setMessages] = useState([]);   // newest-first (inverted list)
@@ -122,18 +146,37 @@ export default function ChatThreadScreen({
   const [loadingMore, setLoadingMore] = useState(false);
   const [exhausted, setExhausted] = useState(false);   // no older pages left
   const [replyTo, setReplyTo] = useState(null);
+  // Arriving from another chat's 'Reply privately' — seed the composer's quote.
+  useEffect(() => { if (initialQuote) setReplyTo({ external: true, ...initialQuote }); }, [initialQuote]);
   const [typingName, setTypingName] = useState(null);
   const [viewerMsg, setViewerMsg] = useState(null);   // media open full-screen
   const [menuOpen, setMenuOpen] = useState(false);    // header ⋮ menu
-  const [msgMenu, setMsgMenu] = useState(null);       // long-pressed message
+  // Long-press selects a message: the header turns into a contextual action bar
+  // and a reaction strip floats above the bubble, the way WhatsApp does it.
+  const [selected, setSelected] = useState(null);
+  const [selMenu, setSelMenu] = useState(false);      // the ⋮ inside that bar
+  const [confirmDel, setConfirmDel] = useState(null); // message awaiting delete confirmation
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [uploadPct, setUploadPct] = useState(0);   // media upload progress
+  const [msgInfo, setMsgInfo] = useState(null);   // { message, loading?, isGroup, read[], delivered[] }
+  const [emojiPick, setEmojiPick] = useState(null);   // full emoji list for a reaction
+  // In-thread search: the header becomes a field and the list shows only hits.
+  const [searchMode, setSearchMode] = useState(false);
+  const [searchQ, setSearchQ] = useState('');
+  const [searchHits, setSearchHits] = useState(null);
+  const [searchBusy, setSearchBusy] = useState(false);
+  const [searchIdx, setSearchIdx] = useState(0);   // which hit the stepper is on
+  const searchTimer = useRef(null);
   const [editing, setEditing] = useState(null);       // message being edited
   const [forwarding, setForwarding] = useState(null); // message being forwarded
   const [pinned, setPinned] = useState([]);           // pinned banner
+  const [pinIdx, setPinIdx] = useState(0);            // which pin the banner shows
   const [pollOpen, setPollOpen] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [opening, setOpening] = useState(null);   // message id being fetched to open
+  const [highlightId, setHighlightId] = useState(null);  // search hit to flash
   const [previewItems, setPreviewItems] = useState(null);  // review tray contents
   const [pinAsk, setPinAsk] = useState(null);              // message awaiting a pin duration
   const [muteAsk, setMuteAsk] = useState(false);           // mute duration picker
@@ -156,6 +199,21 @@ export default function ChatThreadScreen({
   const load = useCallback(async () => {
     setError(null);
     try {
+      // Arriving from a search hit: load the WINDOW AROUND that message (30
+      // before + 30 after) instead of the newest page, so the match is actually
+      // on screen. /chat/messages_around exists precisely for this.
+      if (focusMessageId) {
+        const around = await chat.fetchMessagesAround(convId, focusMessageId);
+        if (around.length) {
+          seenIds.current = new Set(around.map((m) => m.id));
+          setMessages(around.slice().reverse());
+          // Not the newest page, so more may exist below — don't claim exhausted.
+          setExhausted(false);
+          realtime.setActiveConversation(convId, around[around.length - 1].id);
+          setHighlightId(focusMessageId);
+          return;
+        }
+      }
       const asc = await chat.fetchMessages(convId, { limit: PAGE });
       seenIds.current = new Set(asc.map((m) => m.id));
       setMessages(asc.slice().reverse());
@@ -167,9 +225,26 @@ export default function ChatThreadScreen({
       log.warn('load failed', e?.message);
       setError(e?.message || 'Could not load this chat.');
     }
-  }, [convId]);
+  }, [convId, focusMessageId]);
 
   useEffect(() => { (async () => { setLoading(true); await load(); setLoading(false); })(); }, [load]);
+
+  // Scroll the focused message into view once the list has it, then fade the
+  // highlight. scrollToIndex needs the row to exist, hence the effect rather
+  // than doing it inside load().
+  useEffect(() => {
+    if (!highlightId || !messages.length) return undefined;
+    const idx = messages.findIndex((m) => m.id === highlightId);
+    if (idx < 0) return undefined;
+    const t = setTimeout(() => {
+      try {
+        listRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.5 });
+      } catch (_) { /* row not measured yet — the highlight still shows */ }
+    }, 120);
+    // Long enough to notice after the scroll settles.
+    const clear = setTimeout(() => setHighlightId(null), 2600);
+    return () => { clearTimeout(t); clearTimeout(clear); };
+  }, [highlightId, messages]);
 
   // Release the thread cursor on unmount so the engine stops polling it.
   useEffect(() => () => {
@@ -225,42 +300,130 @@ export default function ChatThreadScreen({
     }
   }, [convId, messages, loadingMore, exhausted]);
 
+  // ── google meet ────────────────────────────────────────────────────────────
+  // Read once per thread (memoised in services/chat) so the ⋮ and the 📎 sheet
+  // can say what is actually possible, instead of only explaining themselves in
+  // an alert after the tap.
+  const [gmeet, setGmeet] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    chat.gmeetStatus()
+      .then((st) => { if (alive) setGmeet(st); })
+      .catch((e) => log.warn('gmeet status failed', e?.message));
+    return () => { alive = false; };
+  }, []);
+
+  // Scope depends only on global config plus isGroup, both known here.
+  // admin_only deliberately is NOT checked client-side: /chat/gmeet/status
+  // reports is_admin for the WORKSPACE, while the server also lets a GROUP admin
+  // start one — so refusing here would block something the server would allow.
+  // Let the server say no; its message reaches the user through the catch.
+  const meetScopeOk = !gmeet
+    || (gmeet.scope !== 'groups' && gmeet.scope !== 'direct')
+    || (gmeet.scope === 'groups' ? isGroup : !isGroup);
+  const canMeet = !!gmeet?.connected && meetScopeOk;
+
+  const startMeet = useCallback(async () => {
+    try {
+      const st = await chat.gmeetStatus();
+      if (!st.connected) {
+        // An admin can fix this, so take them straight to the setup panel.
+        if (st.isAdmin) { onOpenGmeet?.(); return; }
+        Alert.alert(
+          'Google Meet not connected',
+          'An administrator needs to connect the shared Google account in Odoo before meetings can be created.',
+        );
+        return;
+      }
+      if (st.scope === 'groups' && !isGroup) {
+        Alert.alert('Not allowed', 'Meetings are limited to group chats here.');
+        return;
+      }
+      if (st.scope === 'direct' && isGroup) {
+        Alert.alert('Not allowed', 'Meetings are limited to direct chats here.');
+        return;
+      }
+      const m = await chat.createMeet(convId);
+      seenIds.current.add(m.id);
+      realtime.noteMessageId(m.id);
+      setMessages((prev) => [m, ...prev]);
+    } catch (e) {
+      Alert.alert('Failed', e?.message || 'Please try again.');
+    }
+  }, [convId, isGroup, onOpenGmeet]);
+
   // ── send ───────────────────────────────────────────────────────────────────
   const send = useCallback(async (body, linkCard) => {
+    // Trigger words. The web client turns a bare "meet" into a meeting rather
+    // than a message (chat_app.js _meetTriggered); the app fetched `triggers`
+    // and ignored them, so the same workspace behaved differently per client.
+    const trigger = (body || '').trim().toLowerCase();
+    if (gmeet?.connected && (gmeet.triggers || []).includes(trigger)) {
+      setReplyTo(null);
+      await startMeet();
+      return;
+    }
     setSending(true);
-    const replyId = replyTo?.id;
+    const reply = replyTo;
     setReplyTo(null);
+
+    // Optimistic bubble. The app used to await the round trip before drawing
+    // anything, which made every message feel slower than the web client. The
+    // temp id is a string so it can never collide with a server id, and it is
+    // swapped for the real message (or rolled back) below.
+    clearDraft(convId);
+    const tempId = `tmp-${Date.now()}`;
+    setMessages((prev) => [{
+      id: tempId, body, mine: true, kind: 'text', status: 'sending',
+      created: new Date().toISOString(), reactions: [], pending: true,
+      quoted: !!reply,
+      replyToAuthor: reply?.authorName, replyToBody: reply?.body,
+      link: linkCard || null,
+    }, ...prev]);
+
     try {
-      const msg = await chat.sendText(convId, body, { replyToId: replyId });
+      const msg = await chat.sendText(convId, body, reply?.external
+        ? { quoteAuthor: reply.authorName, quoteBody: reply.body }
+        : { replyToId: reply?.id });
       seenIds.current.add(msg.id);
       realtime.noteMessageId(msg.id);
       // The server always returns link:null here — it scrapes in a background
       // thread after responding. Carry the composer's card over so the preview
       // is there the instant the bubble appears; the periodic refetch later
       // replaces it with the server's own copy.
-      setMessages((prev) => [{ ...msg, link: msg.link || linkCard || null }, ...prev]);
+      setMessages((prev) => prev.map((x) => (
+        x.id === tempId ? { ...msg, link: msg.link || linkCard || null } : x
+      )));
     } catch (e) {
+      // Roll the bubble back and hand the text and the quote back to the user —
+      // losing what they typed on a failed send is worse than the failure.
+      setMessages((prev) => prev.filter((x) => x.id !== tempId));
+      if (reply) setReplyTo(reply);
       // The server refuses sends for real reasons (blocked, admin-only group), so
       // surface the message rather than silently dropping the text.
       Alert.alert('Not sent', e?.message || 'Could not send the message.');
     } finally {
       setSending(false);
     }
-  }, [convId, replyTo]);
+  }, [convId, replyTo, gmeet, startMeet]);
 
   const typing = useCallback((on) => { chat.sendTyping(convId, on); }, [convId]);
 
   // ── attachments ────────────────────────────────────────────────────────────
   const pushMedia = useCallback(async (opts) => {
     setSending(true);
+    setUploadPct(0);
     try {
-      const msg = await chat.sendMedia(convId, opts);
+      // sendMedia has always accepted an onProgress callback; nothing ever
+      // passed one, so a large upload looked identical to a hung app.
+      const msg = await chat.sendMedia(convId, opts, (pct) => setUploadPct(pct));
       seenIds.current.add(msg.id);
       realtime.noteMessageId(msg.id);
       setMessages((prev) => [msg, ...prev]);
     } catch (e) {
       Alert.alert('Not sent', e?.message || 'Could not send the attachment.');
     } finally {
+      setUploadPct(0);
       setSending(false);
     }
   }, [convId]);
@@ -328,17 +491,22 @@ export default function ChatThreadScreen({
   // capture stays inside the app and it already downscales to ~720px, which
   // matters here because the upload is base64 in a JSON body.
   //
-  // It calls onCapture with a plain URI string — no base64 — so read the file.
-  const onCaptured = useCallback(async (uri) => {
+  // It calls onCapture with a plain URI string — no base64.
+  //
+  // A capture goes into the SAME review tray as a gallery pick. It used to
+  // upload immediately, which meant no preview, no caption, no crop and no
+  // view-once for anything shot with the camera — and no way to back out of a
+  // bad photo.
+  const onCaptured = useCallback((uri) => {
     setCameraOpen(false);
     if (!uri) return;
-    try {
-      const b64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
-      await pushMedia({ kind: 'image', fileB64: b64, fileName: 'photo.jpg', mimetype: 'image/jpeg' });
-    } catch (e) {
-      Alert.alert('Not sent', e?.message || 'Could not read the photo.');
-    }
-  }, [pushMedia]);
+    setPreviewItems([{
+      uri,
+      filename: `photo-${Date.now()}.jpg`,
+      isVideo: false,
+      duration: 0,
+    }]);
+  }, []);
 
   // The mic swaps the composer for the recorder; the recorder hands back the
   // finished take, which uploads like any other attachment.
@@ -350,13 +518,42 @@ export default function ChatThreadScreen({
   }, [pushMedia]);
 
   const attachItems = [
-    { key: 'gallery', label: 'Gallery', icon: 'image', lib: 'mc', bg: '#EDE9FE', fg: '#7C3AED', onPress: () => pickGallery(['images', 'videos']) },
-    { key: 'camera', label: 'Camera', icon: 'camera', lib: 'mc', bg: '#FCE7F3', fg: '#DB2777', onPress: () => setCameraOpen(true) },
-    { key: 'document', label: 'Document', icon: 'file-document', lib: 'mc', bg: '#DBEAFE', fg: '#2563EB', onPress: pickDocument },
-    { key: 'poll', label: 'Poll', icon: 'poll', lib: 'mc', bg: '#CFFAFE', fg: '#0891B2', onPress: () => setPollOpen(true) },
-    { key: 'meet', label: 'Meeting', icon: 'video', lib: 'mc', bg: '#DCFCE7', fg: '#16A34A', onPress: () => headerAction('meet') },
-    { key: 'audio', label: 'Audio', icon: 'music-note', lib: 'mc', bg: '#FFEDD5', fg: '#EA580C', onPress: onVoice },
+    { key: 'gallery', label: 'Gallery', icon: 'image', lib: 'mc', bg: COLORS.violetBg, fg: COLORS.violet, onPress: () => pickGallery(['images', 'videos']) },
+    { key: 'camera', label: 'Camera', icon: 'camera', lib: 'mc', bg: COLORS.pinkBg, fg: COLORS.pink, onPress: () => setCameraOpen(true) },
+    { key: 'document', label: 'Document', icon: 'file-document', lib: 'mc', bg: COLORS.blueBg, fg: COLORS.link, onPress: pickDocument },
+    { key: 'poll', label: 'Poll', icon: 'poll', lib: 'mc', bg: COLORS.cyanBg, fg: COLORS.cyan, onPress: () => setPollOpen(true) },
+    // A tile here is an action that will work. When Meet is not connected, or
+    // the workspace limits it to the other chat type, the tile drops out —
+    // AttachSheet already filters falsy entries. The ⋮ keeps an entry either way
+    // so the feature is still discoverable (and reachable, for an admin).
+    canMeet && { key: 'meet', label: 'Meeting', icon: 'video', lib: 'mc', bg: COLORS.greenBg, fg: COLORS.green, onPress: () => headerAction('meet') },
+    { key: 'audio', label: 'Audio', icon: 'music-note', lib: 'mc', bg: COLORS.orangeBg, fg: COLORS.orange, onPress: onVoice },
   ];
+
+  // The ⋮ entry always exists, but says what is actually true right now.
+  const meetMenuItem = (() => {
+    const icon = 'videocam-outline';
+    // Status not back yet — offer the normal action; startMeet re-checks anyway.
+    if (!gmeet || canMeet) return { icon, label: 'Start a meeting', onPress: () => headerAction('meet') };
+    if (!gmeet.connected) {
+      return gmeet.isAdmin
+        ? { icon, label: 'Set up Google Meet', onPress: () => onOpenGmeet?.() }
+        : {
+            icon,
+            label: 'Meetings not set up',
+            onPress: () => Alert.alert(
+              'Google Meet not connected',
+              'An administrator needs to connect the shared Google account in Odoo before meetings can be created.',
+            ),
+          };
+    }
+    const only = gmeet.scope === 'groups' ? 'group chats' : 'direct chats';
+    return {
+      icon,
+      label: `Meetings are ${gmeet.scope === 'groups' ? 'group' : '1:1'}-only here`,
+      onPress: () => Alert.alert('Not allowed', `Meetings are limited to ${only} in this workspace.`),
+    };
+  })();
 
   // ── message actions ────────────────────────────────────────────────────────
   // Applied optimistically where the server echoes the updated message back, and
@@ -365,7 +562,10 @@ export default function ChatThreadScreen({
   const replaceMsg = (m) => setMessages((prev) => prev.map((x) => (x.id === m.id ? m : x)));
 
   const act = useCallback(async (kind, m) => {
-    setMsgMenu(null);
+    setSelMenu(false);
+    // Reply and edit keep the selection alive only long enough to seed the
+    // composer; everything else drops it so the header returns to normal.
+    setSelected(null);
     try {
       if (kind === 'reply') { setReplyTo(m); return; }
       if (kind === 'edit') { setEditing(m); return; }
@@ -384,12 +584,28 @@ export default function ChatThreadScreen({
         return;
       }
       if (kind === 'info') {
-        const i = await chat.messageInfo(m.id);
-        Alert.alert(
-          'Message info',
-          `Delivered to ${i.delivered.length}\nRead by ${i.read.length}` +
-          (i.isGroup ? ` of ${i.memberCount}` : ''),
-        );
+        // The route returns names, avatars and per-person timestamps; this used
+        // to reduce all of it to two counts in an Alert.
+        setMsgInfo({ loading: true, message: m });
+        setSelected(null);
+        try { setMsgInfo({ message: m, ...(await chat.messageInfo(m.id)) }); }
+        catch (e) { setMsgInfo(null); Alert.alert('Failed', e?.message || 'Please try again.'); }
+        return;
+      }
+      // Copy means copy — straight to the clipboard, no share sheet.
+      if (kind === 'copy') {
+        setSelected(null);
+        const ok = await copyText(m.body);
+        if (!ok) Alert.alert('Could not copy', 'The clipboard is not available on this device.');
+        return;
+      }
+      // Opens the 1:1 with the group message carried across as a quote. The
+      // server takes quote_author/quote_body for exactly this — a reply_to_id
+      // only points within one conversation.
+      if (kind === 'replyPrivately') {
+        setSelected(null);
+        const conv = await chat.openDirect(m.authorId);
+        onReplyPrivately?.(conv, { authorName: m.authorName, body: m.body || '' });
         return;
       }
       if (kind === 'deleteMe') {
@@ -410,6 +626,24 @@ export default function ChatThreadScreen({
     }
   }, []);
 
+  // Delete always confirms first, through the app's own ConfirmDialog rather
+  // than a native Alert: an Alert follows the ANDROID theme, which is still
+  // pinned light, so it renders white even in dark mode. ConfirmDialog is an
+  // in-tree layer, not a <Modal>, so it also sidesteps the Android
+  // Modal-inside-Modal race that made this show nothing at all.
+  const confirmDelete = useCallback((msg) => {
+    if (!msg) return;
+    setSelMenu(false);
+    setConfirmDel(msg);
+  }, []);
+
+  const runDelete = useCallback((scope) => {
+    const msg = confirmDel;
+    setConfirmDel(null);
+    setSelected(null);
+    if (msg) act(scope, msg);
+  }, [confirmDel, act]);
+
   // The server only allows editing your own message within 15 minutes, and only
   // the author may delete for everyone — mirror both so nobody taps into an error.
   const canEdit = (m) => m.mine && !m.deleted && m.kind === 'text'
@@ -418,7 +652,8 @@ export default function ChatThreadScreen({
   // Tapping an existing chip toggles your own reaction off (the server treats an
   // empty emoji as "remove"), which is what tapping your own chip should do.
   const react = useCallback(async (m, emoji) => {
-    setMsgMenu(null);
+    setSelected(null);
+    setEmojiPick(null);
     try {
       const has = (m.reactions || []).some((r) => r.emoji === emoji && r.mine);
       replaceMsg(await chat.react(m.id, has ? '' : emoji));
@@ -455,16 +690,96 @@ export default function ChatThreadScreen({
   // Tapping an attachment RUNS it. Images open full-screen in-app; video, audio
   // and documents go straight to the OS handler — no intermediate Play/Open step.
   const openMedia = useCallback(async (m) => {
+    log.info('open media', { id: m.id, kind: m.kind, hasMedia: m.hasMedia, url: !!m.mediaUrl });
+    // The server sets has_media false for a deleted message, and for view-once
+    // media that has already been consumed — including for the sender, always.
+    if (!m.hasMedia || !m.mediaUrl) {
+      Alert.alert(
+        'Not available',
+        m.deleted
+          ? 'This message was deleted.'
+          : m.viewOnce
+            ? 'This was a view-once file and can no longer be opened.'
+            : 'The server did not provide this attachment.',
+      );
+      return;
+    }
     if (m.kind === 'image') { setViewerMsg(m); return; }
     setOpening(m.id);
     try {
       await openAttachment(m);
+      // A view-once video is handed to the OS viewer, so there is no "closed"
+      // moment to hook — opening IS the consumption.
+      if (m.viewOnce) await burnViewOnce(m);
     } catch (e) {
       Alert.alert('Could not open', e?.message || 'The file could not be opened.');
     } finally {
       setOpening(null);
     }
   }, []);
+
+  // Consume a view-once message: the server drops its media and flips `viewed`,
+  // and the bubble then renders "Opened". Deliberately fire-and-reconcile — the
+  // user has already seen the photo, so a failed call must not look like it
+  // wasn't viewed.
+  const burnViewOnce = useCallback(async (m) => {
+    try { replaceMsg(await chat.viewOnceSeen(m.id)); }
+    catch (e) { log.warn('view-once burn failed', e?.message); }
+  }, []);
+
+  // Debounced in-thread search. /chat/search_messages is a plain ILIKE with a
+  // 100-result cap, newest first.
+  useEffect(() => {
+    const q = searchQ.trim();
+    clearTimeout(searchTimer.current);
+    if (!searchMode || !q) { setSearchHits(null); setSearchBusy(false); return undefined; }
+    setSearchBusy(true);
+    searchTimer.current = setTimeout(async () => {
+      try { setSearchHits(await chat.searchMessages(convId, q)); setSearchIdx(0); }
+      catch (e) { log.warn('in-thread search failed', e?.message); setSearchHits([]); }
+      finally { setSearchBusy(false); }
+    }, 350);
+    return () => clearTimeout(searchTimer.current);
+  }, [searchQ, searchMode, convId]);
+
+  const hitCount = (searchHits || []).length;
+
+  // Walk the hits in place. Leaves search so the message is visible in the
+  // thread, which is the only way to actually read it in context.
+  const stepHit = useCallback((dir) => {
+    const hits = searchHits || [];
+    if (!hits.length) return;
+    const next = Math.min(Math.max(searchIdx + dir, 0), hits.length - 1);
+    setSearchIdx(next);
+    const target = hits[next];
+    if (target) { setSearchMode(false); jumpTo(target.id); }
+  }, [searchHits, searchIdx, jumpTo]);
+
+  const closeSearch = useCallback(() => {
+    setSearchMode(false);
+    setSearchQ('');
+    setSearchHits(null);
+    setSearchIdx(0);
+  }, []);
+
+  // Jump to a message by id — used by the pinned banner and by search hits.
+  // If it is already loaded we just scroll; if not, pull the window around it.
+  const jumpTo = useCallback(async (messageId) => {
+    if (!messageId) return;
+    if (messages.some((m) => m.id === messageId)) { setHighlightId(messageId); return; }
+    try {
+      const around = await chat.fetchMessagesAround(convId, messageId);
+      if (!around.length) return;
+      seenIds.current = new Set(around.map((m) => m.id));
+      setMessages(around.slice().reverse());
+      // Not the newest page any more, so older pages may still exist.
+      setExhausted(false);
+      setHighlightId(messageId);
+    } catch (e) {
+      log.warn('jump failed', e?.message);
+      Alert.alert('Could not open', e?.message || 'That message could not be loaded.');
+    }
+  }, [messages, convId]);
 
   const loadPinned = useCallback(async () => {
     try { setPinned(await chat.fetchPinned(convId)); } catch (_) { /* banner is optional */ }
@@ -477,37 +792,37 @@ export default function ChatThreadScreen({
     setMenuOpen(false);
     try {
       if (kind === 'info') { onOpenInfo?.(); return; }
-      if (kind === 'search') { onOpenSearch?.(); return; }
+      // Search happens in place: the header becomes a search field and the list
+      // narrows to matches, rather than pushing a separate screen.
+      if (kind === 'search') { setSearchMode(true); return; }
       if (kind === 'media') { onOpenMedia?.(); return; }
       if (kind === 'starred') { onOpenStarred?.(); return; }
-      if (kind === 'meet') {
-        // Gated server-side (admin-only by default, and by scope) — surface the
-        // refusal rather than failing silently.
-        const m = await chat.createMeet(convId);
-        seenIds.current.add(m.id);
-        realtime.noteMessageId(m.id);
-        setMessages((prev) => [m, ...prev]);
-        return;
-      }
+      if (kind === 'meet') { await startMeet(); return; }
       if (kind === 'mute') { setMuteAsk(true); return; }
       if (kind === 'markUnread') { await chat.markUnread(convId); onBack?.(); return; }
-      if (kind === 'clear') {
-        Alert.alert('Clear chat?', 'Messages will be hidden for you only.', [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Clear',
-            style: 'destructive',
-            onPress: async () => {
-              try { await chat.clearChat(convId); setMessages([]); seenIds.current = new Set(); }
-              catch (e) { Alert.alert('Failed', e?.message || 'Please try again.'); }
-            },
-          },
-        ]);
+      // Same reasoning as the delete confirm: opened from the ⋮ (a Modal), so a
+      // second Modal would lose the race, and a native Alert would be white on
+      // dark. ConfirmDialog is an in-tree layer and follows the palette.
+      if (kind === 'clear') { setConfirmClear(true); return; }
+      // /chat/export returns text/plain, not the JSON envelope. Written to cache
+      // and handed to the share sheet, which is how every other file leaves the
+      // app (utils/openAttachment) — no new native module needed.
+      if (kind === 'export') {
+        const text = await chat.fetchTranscript(convId);
+        const safe = String(conversation?.title || 'chat').replace(/[^A-Za-z0-9_-]+/g, '_');
+        const path = `${FileSystem.cacheDirectory}369chats_${safe}.txt`;
+        await FileSystem.writeAsStringAsync(path, text);
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(path, { mimeType: 'text/plain', dialogTitle: 'Export chat' });
+        } else {
+          Alert.alert('Exported', `Saved to ${path}`);
+        }
+        return;
       }
     } catch (e) {
       Alert.alert('Failed', e?.message || 'Please try again.');
     }
-  }, [convId, onOpenInfo, onOpenSearch, onOpenMedia, onOpenStarred, onBack]);
+  }, [convId, isGroup, onOpenInfo, onOpenSearch, onOpenMedia, onOpenStarred, onBack, startMeet]);
 
   // ── render ─────────────────────────────────────────────────────────────────
   // Inverted list: index 0 sits at the BOTTOM, and messages[index + 1] is the
@@ -522,18 +837,52 @@ export default function ChatThreadScreen({
     const newDay = !older || dayKey(older.created) !== dayKey(item.created);
     // In groups, only label the first of a run from the same author.
     const showAuthor = isGroup && (!older || older.authorId !== item.authorId);
+    const isSel = selected?.id === item.id;
+    const isHit = highlightId === item.id;
     return (
-      <View>
+      <View style={[isSel && s.selectedRow, isHit && s.hitRow]}>
         {newDay && !!item.created && (
           <View style={s.dayWrap}><Text style={s.dayTxt}>{dayLabel(item.created)}</Text></View>
+        )}
+        {/* Reaction strip, floating directly above the selected bubble. Rendered
+            in the cell rather than absolutely positioned so it can never end up
+            off-screen on a short or very long message. */}
+        {isSel && !item.deleted && (
+          <View style={[s.reactStrip, item.mine ? s.reactStripMine : s.reactStripTheirs]}>
+            {QUICK_REACTIONS.map((e) => {
+              const on = (item.reactions || []).some((r) => r.emoji === e && r.mine);
+              return (
+                <TouchableOpacity
+                  key={e}
+                  style={[s.reactPickBtn, on && s.reactPickBtnOn]}
+                  onPress={() => react(item, e)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={s.reactPickEmoji}>{e}</Text>
+                </TouchableOpacity>
+              );
+            })}
+            {/* + opens the full set, like the web client. */}
+            <TouchableOpacity style={s.reactPlus} onPress={() => setEmojiPick(item)} activeOpacity={0.7}>
+              <Ionicons name="add" size={19} color={COLORS.slate500} />
+            </TouchableOpacity>
+          </View>
         )}
         <MessageBubble
           msg={toBubble(item)}
           showAuthor={showAuthor}
-          onLongPress={() => setMsgMenu(item)}
+          highlight={searchQ.trim()}
+          onLongPress={() => setSelected(item)}
           // Only offer the viewer when the server actually served media —
           // has_media is false for deleted and burned view-once messages.
-          onMediaPress={item.hasMedia ? () => openMedia(item) : undefined}
+          // Always attached for media kinds. Gating this on hasMedia made a tap
+          // do NOTHING when the server withheld the file, which is
+          // indistinguishable from a broken button — openMedia now explains why.
+          onMediaPress={
+            ['image', 'video', 'audio', 'document'].includes(item.kind)
+              ? () => openMedia(item)
+              : undefined
+          }
           onReact={(emoji) => react(item, emoji)}
           onVote={vote}
           onMeet={(url) => Linking.openURL(url).catch(() => Alert.alert('Could not open', url))}
@@ -543,9 +892,208 @@ export default function ChatThreadScreen({
     );
   };
 
+  // The message list, shared by both header states so selecting a message never
+  // unmounts and re-fetches the thread. `extraData` is required: the selection
+  // lives outside the row data, so FlatList would not otherwise re-render the
+  // row that needs the reaction strip.
+  const threadBody = loading ? (
+    <Loader />
+  ) : error ? (
+    <EmptyState icon="alert-circle-outline" tone="error" title={error} onRetry={load} />
+  ) : (
+    <FlatList
+      ref={listRef}
+      inverted
+      data={messages}
+      keyExtractor={(m) => String(m.id)}
+      renderItem={renderItem}
+      extraData={selected}
+      contentContainerStyle={{ paddingVertical: SPACING.md, flexGrow: 1 }}
+      onEndReached={loadOlder}
+      onEndReachedThreshold={0.4}
+      keyboardDismissMode="interactive"
+      // Inverted list: offset 0 IS the newest message, so "scrolled away from
+      // the bottom" means a positive offset.
+      onScroll={(e) => setAtBottom(e.nativeEvent.contentOffset.y < 80)}
+      scrollEventThrottle={64}
+      // Inverted: the "footer" renders at the TOP, which is where an older-page
+      // spinner belongs.
+      ListFooterComponent={loadingMore ? <ActivityIndicator style={{ marginVertical: 14 }} color={COLORS.primary} /> : null}
+      ListEmptyComponent={
+        <EmptyState icon="chatbubble-ellipses-outline" title="No messages yet" sub="Say hello." />
+      }
+    />
+  );
+
+  // Search takes over the header in place — no separate screen — and the body
+  // becomes the hit list. Tapping a hit jumps the thread to that message.
+  if (searchMode) {
+    return (
+      <Screen>
+        <View style={[s.header, s.selHeader, { paddingTop: TOP }]}>
+          <TouchableOpacity onPress={closeSearch} hitSlop={HIT} style={s.iconBtn}>
+            <Ionicons name="arrow-back" size={22} color={COLORS.navy} />
+          </TouchableOpacity>
+          <View style={s.searchField}>
+            <Ionicons name="search" size={17} color={COLORS.faint} />
+            <TextInput
+              style={s.searchInput}
+              value={searchQ}
+              onChangeText={setSearchQ}
+              placeholder={`Search in ${conversation?.title || 'this chat'}`}
+              placeholderTextColor={COLORS.faint}
+              autoFocus
+              returnKeyType="search"
+            />
+            {searchBusy && <ActivityIndicator size="small" color={COLORS.primary} />}
+            {!!searchQ && !searchBusy && (
+              <TouchableOpacity onPress={() => setSearchQ('')} hitSlop={HIT}>
+                <Ionicons name="close-circle" size={17} color={COLORS.faint} />
+              </TouchableOpacity>
+            )}
+          </View>
+          {/* n/N stepper: walk hits without leaving search, the way the web
+              client does. Newest-first, so ∨ goes to older matches. */}
+          {!!hitCount && (
+            <View style={s.stepper}>
+              <TouchableOpacity onPress={() => stepHit(-1)} hitSlop={HIT} disabled={searchIdx <= 0}>
+                <Ionicons name="chevron-up" size={20} color={searchIdx <= 0 ? COLORS.faint : COLORS.primary} />
+              </TouchableOpacity>
+              <Text style={s.stepTxt}>{searchIdx + 1}/{hitCount}</Text>
+              <TouchableOpacity
+                onPress={() => stepHit(1)}
+                hitSlop={HIT}
+                disabled={searchIdx >= hitCount - 1}
+              >
+                <Ionicons
+                  name="chevron-down" size={20}
+                  color={searchIdx >= hitCount - 1 ? COLORS.faint : COLORS.primary}
+                />
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+
+        <View style={{ flex: 1, paddingBottom: kb > 0 ? kb + insets.bottom : insets.bottom }}>
+          <FlatList
+            data={searchHits || []}
+            keyExtractor={(m) => `h${m.id}`}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={(searchHits || []).length ? { paddingBottom: 24 } : { flexGrow: 1 }}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={s.hitItem}
+                activeOpacity={0.75}
+                onPress={() => { closeSearch(); jumpTo(item.id); }}
+              >
+                <View style={s.hitHead}>
+                  <Text style={s.hitWho} numberOfLines={1}>{item.mine ? 'You' : item.authorName}</Text>
+                  <Text style={s.hitWhen}>{timeOf(item.created)}</Text>
+                </View>
+                <Text style={s.hitBody} numberOfLines={2}>
+                  {item.body || item.fileName || `[${item.kind}]`}
+                </Text>
+              </TouchableOpacity>
+            )}
+            ListEmptyComponent={
+              <EmptyState
+                icon="search-outline"
+                title={
+                  !searchQ.trim() ? 'Search this chat'
+                    : searchBusy ? 'Searching…' : 'No matches'
+                }
+                sub={!searchQ.trim() ? 'Find anything said in this conversation.' : undefined}
+              />
+            }
+          />
+        </View>
+      </Screen>
+    );
+  }
+
+  // While a message is selected the header becomes an action bar. The frequent
+  // verbs get their own icon; everything else hides under ⋮, as WhatsApp does.
+  // While a message is selected the header becomes an action bar.
+  //
+  // This used to be an early `return` of a whole second <Screen>. React then saw
+  // a different tree, unmounted the FlatList and mounted a new one — and an
+  // inverted list starts at offset 0, which is the NEWEST message. That is why
+  // long-pressing a message snapped the thread down to the bottom instead of
+  // staying put. Everything below is now built as values and slotted into the
+  // single return, so the list is never torn down.
+  const m = selected;
+
+  const selectionBar = selected ? (
+    <View style={[s.header, s.selHeader, { paddingTop: TOP }]}>
+          <TouchableOpacity onPress={() => setSelected(null)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }} style={s.iconBtn}>
+            <Ionicons name="close" size={23} color={COLORS.navy} />
+          </TouchableOpacity>
+          <View style={{ flex: 1 }} />
+          {!m.deleted && (
+            <>
+              <TouchableOpacity onPress={() => { setSelected(null); setReplyTo(m); }} hitSlop={HIT} style={s.selBtn}>
+                <Ionicons name="arrow-undo-outline" size={21} color={COLORS.navy} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => act('star', m)} hitSlop={HIT} style={s.selBtn}>
+                <Ionicons name={m.starred ? 'star' : 'star-outline'} size={21} color={m.starred ? COLORS.amber : COLORS.navy} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => act('forward', m)} hitSlop={HIT} style={s.selBtn}>
+                <Ionicons name="arrow-redo-outline" size={21} color={COLORS.navy} />
+              </TouchableOpacity>
+            </>
+          )}
+          <TouchableOpacity onPress={() => confirmDelete(m)} hitSlop={HIT} style={s.selBtn}>
+            <Ionicons name="trash-outline" size={21} color={COLORS.red} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setSelMenu(true)} hitSlop={HIT} style={s.selBtn}>
+            <Ionicons name="ellipsis-vertical" size={20} color={COLORS.navy} />
+          </TouchableOpacity>
+    </View>
+  ) : null;
+
+  const selectionMenu = selected ? (
+    <MenuPopup
+      visible={selMenu}
+      onClose={() => setSelMenu(false)}
+      items={[
+        !m.deleted && {
+          key: 'pin', icon: m.pinned ? 'pin' : 'pin-outline',
+          label: m.pinned ? 'Unpin' : 'Pin', onPress: () => act('pin', m),
+        },
+        canEdit(m) && { key: 'edit', icon: 'create-outline', label: 'Edit', onPress: () => act('edit', m) },
+        !m.deleted && !!m.body && { key: 'copy', icon: 'copy-outline', label: 'Copy', onPress: () => act('copy', m) },
+        // Reply privately: only from a GROUP, and never to yourself — it opens
+        // the 1:1 and carries the quote across, which is what the cross-chat
+        // quote_author/quote_body fields on /chat/send exist for.
+        isGroup && !m.mine && !m.deleted && {
+          key: 'replypriv', icon: 'arrow-undo-outline', label: 'Reply privately',
+          onPress: () => act('replyPrivately', m),
+        },
+        m.mine && { key: 'info', icon: 'checkmark-done-outline', label: 'Info', onPress: () => act('info', m) },
+        // Opens the same confirmation the trash icon does. This used to
+        // delete on tap with no dialog at all.
+        { key: 'delme', icon: 'trash-outline', label: 'Delete', tone: 'danger', onPress: () => confirmDelete(m) },
+      ]}
+    />
+  ) : null;
+
+
+  const emojiDialog = (
+        <PopupModal visible={!!emojiPick} onClose={() => setEmojiPick(null)} title="React">
+          <View style={s.emojiWrap}>
+            {ALL_REACTIONS.map((e) => (
+              <TouchableOpacity key={e} style={s.emojiCell} onPress={() => react(emojiPick, e)} activeOpacity={0.6}>
+                <Text style={s.emojiBig}>{e}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </PopupModal>
+  );
+
   return (
     <Screen>
-      <View style={[s.header, { paddingTop: TOP }]}>
+      {selectionBar}
+      <View style={[s.header, { paddingTop: TOP }, selected && s.hidden]} pointerEvents={selected ? 'none' : 'auto'}>
         <TouchableOpacity onPress={onBack} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }} style={s.iconBtn}>
           <Ionicons name="chevron-back" size={24} color={COLORS.navy} />
         </TouchableOpacity>
@@ -582,12 +1130,24 @@ export default function ChatThreadScreen({
 
       {/* Pinned banner — max 3 server-side, and pins always carry an expiry. */}
       {!!pinned.length && (
-        <TouchableOpacity style={s.pinBar} activeOpacity={0.8} onPress={() => setViewerMsg(null)}>
+        <TouchableOpacity
+          style={s.pinBar}
+          activeOpacity={0.8}
+          // Tapping jumps to the pinned message. With several pinned, each tap
+          // advances to the next one, which is how the web client cycles them.
+          onPress={() => {
+            const next = (pinIdx + 1) % pinned.length;
+            jumpTo(pinned[pinIdx]?.id);
+            if (pinned.length > 1) setPinIdx(next);
+          }}
+        >
           <Ionicons name="pin" size={15} color={COLORS.primary} />
           <Text style={s.pinTxt} numberOfLines={1}>
-            {pinned[0].body || pinned[0].fileName || 'Pinned message'}
+            {pinned[pinIdx]?.body || pinned[pinIdx]?.fileName || 'Pinned message'}
           </Text>
-          {pinned.length > 1 && <Text style={s.pinCount}>+{pinned.length - 1}</Text>}
+          {pinned.length > 1 && (
+            <Text style={s.pinCount}>{pinIdx + 1}/{pinned.length}</Text>
+          )}
         </TouchableOpacity>
       )}
 
@@ -598,33 +1158,7 @@ export default function ChatThreadScreen({
           it hid behind the keyboard's toolbar row.
           Keyboard DOWN: just the inset, to clear the nav/gesture bar. */}
       <View style={{ flex: 1, paddingBottom: kb > 0 ? kb + insets.bottom : insets.bottom }}>
-        {loading ? (
-          <Loader />
-        ) : error ? (
-          <EmptyState icon="alert-circle-outline" tone="error" title={error} onRetry={load} />
-        ) : (
-          <FlatList
-            ref={listRef}
-            inverted
-            data={messages}
-            keyExtractor={(m) => String(m.id)}
-            renderItem={renderItem}
-            contentContainerStyle={{ paddingVertical: SPACING.md, flexGrow: 1 }}
-            onEndReached={loadOlder}
-            onEndReachedThreshold={0.4}
-            keyboardDismissMode="interactive"
-            // Inverted list: offset 0 IS the newest message, so "scrolled away
-            // from the bottom" means a positive offset.
-            onScroll={(e) => setAtBottom(e.nativeEvent.contentOffset.y < 80)}
-            scrollEventThrottle={64}
-            // Inverted: the "footer" renders at the TOP, which is where an older-page
-            // spinner belongs.
-            ListFooterComponent={loadingMore ? <ActivityIndicator style={{ marginVertical: 14 }} color={COLORS.primary} /> : null}
-            ListEmptyComponent={
-              <EmptyState icon="chatbubble-ellipses-outline" title="No messages yet" sub="Say hello." />
-            }
-          />
-        )}
+        {threadBody}
 
         {/* Jump to the newest message. Inverted list, so "bottom" is offset 0. */}
         {!atBottom && messages.length > 0 && (
@@ -637,7 +1171,10 @@ export default function ChatThreadScreen({
           </TouchableOpacity>
         )}
 
-        {recording ? (
+        {/* No composer while a message is selected — the action bar owns the
+            screen. Rendered as null in the SAME slot rather than by swapping
+            trees, so the list above is untouched. */}
+        {selected ? null : recording ? (
           <VoiceRecorder
             onCancel={() => setRecording(false)}
             onSend={sendVoice}
@@ -656,7 +1193,10 @@ export default function ChatThreadScreen({
             onCamera={() => setCameraOpen(true)}
             onVoice={onVoice}
             onTyping={typing}
+            initialDraft={draftFor(convId)}
+            onDraftChange={(t) => setDraft(convId, t)}
             sending={sending}
+            uploadPct={uploadPct}
             replyTo={replyTo}
             onCancelReply={() => setReplyTo(null)}
             emojiOpen={emojiOpen}
@@ -665,6 +1205,36 @@ export default function ChatThreadScreen({
           />
         )}
       </View>
+
+      {selectionMenu}
+      {emojiDialog}
+
+      {/* Message info — who received it and who read it, with the times. */}
+      <PopupModal
+        visible={!!msgInfo}
+        onClose={() => setMsgInfo(null)}
+        title="Message info"
+        subtitle={msgInfo?.message?.body ? String(msgInfo.message.body).slice(0, 80) : undefined}
+      >
+        {msgInfo?.loading ? (
+          <View style={{ padding: SPACING.xl }}><ActivityIndicator color={COLORS.primary} /></View>
+        ) : (
+          <ScrollView style={{ maxHeight: 380 }}>
+            <InfoGroup
+              icon="checkmark-done" tint={COLORS.readTick} label="Read by"
+              count={msgInfo?.read?.length || 0}
+              total={msgInfo?.isGroup ? msgInfo.memberCount : 0}
+              people={msgInfo?.read || []}
+            />
+            <InfoGroup
+              icon="checkmark-done" tint={COLORS.slate400} label="Delivered to"
+              count={msgInfo?.delivered?.length || 0}
+              total={msgInfo?.isGroup ? msgInfo.memberCount : 0}
+              people={msgInfo?.delivered || []}
+            />
+          </ScrollView>
+        )}
+      </PopupModal>
 
       {/* Header ⋮ — drops from the button, like WhatsApp. */}
       <MenuPopup
@@ -677,51 +1247,16 @@ export default function ChatThreadScreen({
           { icon: 'star-outline', label: 'Starred messages', onPress: () => headerAction('starred') },
           // Poll lives in the attach sheet (📎 → Poll), where the other things
           // you can put IN a message live. It was duplicated here.
-          { icon: 'videocam-outline', label: 'Start a meeting', onPress: () => headerAction('meet') },
+          meetMenuItem,
           { icon: 'notifications-off-outline', label: 'Mute notifications', onPress: () => headerAction('mute') },
           { icon: 'mail-unread-outline', label: 'Mark as unread', onPress: () => headerAction('markUnread') },
+          { icon: 'download-outline', label: 'Export chat', onPress: () => headerAction('export') },
           { icon: 'trash-outline', label: 'Clear chat', tone: 'danger', onPress: () => headerAction('clear') },
         ]}
       />
 
-      {/* Long-press on a message */}
-      <Sheet visible={!!msgMenu} onClose={() => setMsgMenu(null)} title="Message">
-        {!!msgMenu && !msgMenu.deleted && (
-          <View style={s.reactPickRow}>
-            {QUICK_REACTIONS.map((e) => (
-              <TouchableOpacity key={e} style={s.reactPick} onPress={() => react(msgMenu, e)} activeOpacity={0.7}>
-                <Text style={s.reactPickTxt}>{e}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-        <ScrollView style={{ maxHeight: 360 }}>
-          {!!msgMenu && !msgMenu.deleted && (
-            <>
-              <MenuItem icon="arrow-undo-outline" label="Reply" onPress={() => act('reply', msgMenu)} />
-              <MenuItem icon="arrow-redo-outline" label="Forward" onPress={() => act('forward', msgMenu)} />
-              <MenuItem
-                icon={msgMenu.starred ? 'star' : 'star-outline'}
-                label={msgMenu.starred ? 'Unstar' : 'Star'}
-                onPress={() => act('star', msgMenu)}
-              />
-              <MenuItem
-                icon={msgMenu.pinned ? 'pin' : 'pin-outline'}
-                label={msgMenu.pinned ? 'Unpin' : 'Pin'}
-                onPress={() => act('pin', msgMenu)}
-              />
-              {canEdit(msgMenu) && (
-                <MenuItem icon="create-outline" label="Edit" onPress={() => act('edit', msgMenu)} />
-              )}
-              {msgMenu.mine && <MenuItem icon="checkmark-done-outline" label="Info" onPress={() => act('info', msgMenu)} />}
-            </>
-          )}
-          <MenuItem icon="eye-off-outline" label="Delete for me" tone="danger" onPress={() => act('deleteMe', msgMenu)} />
-          {!!msgMenu?.mine && !msgMenu?.deleted && (
-            <MenuItem icon="trash-outline" label="Delete for everyone" tone="danger" onPress={() => act('deleteAll', msgMenu)} />
-          )}
-        </ScrollView>
-      </Sheet>
+      {/* (The long-press bottom sheet was replaced by the contextual header bar
+          + reaction strip above, which is the WhatsApp interaction.) */}
 
       <ForwardSheet
         visible={!!forwarding}
@@ -760,7 +1295,7 @@ export default function ChatThreadScreen({
           pause after a tap reads as a broken button. */}
       {opening != null && (
         <View style={s.opening} pointerEvents="none">
-          <ActivityIndicator color="#fff" size="small" />
+          <ActivityIndicator color={COLORS.onPrimary} size="small" />
           <Text style={s.openingTxt}>Opening…</Text>
         </View>
       )}
@@ -814,23 +1349,94 @@ export default function ChatThreadScreen({
         onSend={sendReviewed}
       />
 
-      <MediaViewer visible={!!viewerMsg} message={viewerMsg} onClose={() => setViewerMsg(null)} />
+      <MediaViewer
+        visible={!!viewerMsg}
+        message={viewerMsg}
+        onClose={() => {
+          const m = viewerMsg;
+          setViewerMsg(null);
+          if (m?.viewOnce) burnViewOnce(m);
+        }}
+      />
+
+      {/* Last in the tree on purpose: it is an in-tree layer, not a <Modal>, so
+          paint order is what puts it on top. */}
+      <ConfirmDialog
+        visible={!!confirmDel}
+        icon="trash-outline"
+        title="Delete message?"
+        message={confirmDel?.canDeleteAll
+          ? 'Choose who this is removed for. Deleting for everyone cannot be undone.'
+          : (confirmDel?.mine && !confirmDel?.deleted
+            ? 'The 24-hour window to delete this for everyone has passed, so it can only be removed from your own copy.'
+            : 'This message can only be removed from your own copy of the chat.')}
+        actions={[
+          {
+            key: 'me',
+            label: 'Delete for me',
+            sub: 'Others keep their copy',
+            tone: 'danger',
+            onPress: () => runDelete('deleteMe'),
+          },
+          confirmDel?.canDeleteAll && {
+            key: 'all',
+            label: 'Delete for everyone',
+            sub: 'Replaced with “This message was deleted”',
+            tone: 'danger',
+            onPress: () => runDelete('deleteAll'),
+          },
+        ]}
+        onCancel={() => setConfirmDel(null)}
+      />
+
+      <ConfirmDialog
+        visible={confirmClear}
+        icon="brush-outline"
+        title="Clear chat?"
+        message="Every message is hidden from your copy of this chat. Other members keep theirs."
+        actions={[{
+          key: 'clear',
+          label: 'Clear chat',
+          tone: 'danger',
+          onPress: async () => {
+            setConfirmClear(false);
+            try { await chat.clearChat(convId); setMessages([]); seenIds.current = new Set(); }
+            catch (e) { Alert.alert('Failed', e?.message || 'Please try again.'); }
+          },
+        }]}
+        onCancel={() => setConfirmClear(false)}
+      />
     </Screen>
   );
 }
 
-// One row in either sheet.
-function MenuItem({ icon, label, onPress, tone }) {
-  return (
-    <TouchableOpacity style={s.menuItem} onPress={onPress} activeOpacity={0.7}>
-      <Ionicons name={icon} size={20} color={tone === 'danger' ? COLORS.red : COLORS.primary} />
-      <Text style={[s.menuTxt, tone === 'danger' && { color: COLORS.red }]}>{label}</Text>
-    </TouchableOpacity>
-  );
-}
+// (MenuItem went with the long-press sheet — MenuPopup renders its own rows.)
 
 // Replaces the composer while an edit is in flight. Seeded with the current body
 // so the user amends rather than retypes.
+// One half of the Message-info dialog: the people who read (or received) it,
+// each with the time. In a 1:1 the "of N" is noise, so `total` is passed 0.
+function InfoGroup({ icon, tint, label, count, total, people }) {
+  return (
+    <View style={s.infoGroup}>
+      <View style={s.infoHead}>
+        <Ionicons name={icon} size={16} color={tint} />
+        <Text style={s.infoLabel}>{label}</Text>
+        <Text style={s.infoCount}>{total ? `${count} of ${total}` : count}</Text>
+      </View>
+      {people.length ? people.map((p) => (
+        <View key={p.userId} style={s.infoRow}>
+          <Avatar name={p.name} uri={p.avatarUrl} size={30} />
+          <Text style={s.infoName} numberOfLines={1}>{p.name}</Text>
+          <Text style={s.infoAt}>{p.at ? timeOf(p.at) : ''}</Text>
+        </View>
+      )) : (
+        <Text style={s.infoEmpty}>No one yet.</Text>
+      )}
+    </View>
+  );
+}
+
 function EditBar({ message, onCancel, onSubmit }) {
   const [text, setText] = useState(message?.body || '');
   return (
@@ -849,7 +1455,7 @@ function EditBar({ message, onCancel, onSubmit }) {
           onPress={() => text.trim() && onSubmit(text.trim())}
           disabled={!text.trim()}
         >
-          <Ionicons name="checkmark" size={20} color="#fff" />
+          <Ionicons name="checkmark" size={20} color={COLORS.onPrimary} />
         </TouchableOpacity>
       </View>
     </View>
@@ -899,25 +1505,52 @@ function PollSheet({ visible, onClose, onCreate }) {
   const ready = q.trim() && filled.length >= 2;
 
   return (
-    <Sheet visible={visible} onClose={onClose} title="Create poll">
-      <ScrollView style={{ maxHeight: 400 }}>
-        <TextInput style={s.pollInput} value={q} onChangeText={setQ} placeholder="Question" placeholderTextColor={COLORS.faint} />
-        {opts.map((o, i) => (
-          <TextInput
-            key={i} style={s.pollInput} value={o} onChangeText={(v) => setOpt(i, v)}
-            placeholder={`Option ${i + 1}`} placeholderTextColor={COLORS.faint}
-          />
-        ))}
-        {opts.length < 12 && (
-          <TouchableOpacity style={s.pollAdd} onPress={() => setOpts((p) => [...p, ''])}>
-            <Ionicons name="add" size={17} color={COLORS.primary} />
-            <Text style={s.pollAddTxt}>Add option</Text>
+    // Centred, not a bottom sheet: this is a form the user fills in, and the
+    // keyboard pushing a sheet around left "Create poll" off-screen. Matches the
+    // edit-profile dialog.
+    <PopupModal
+      visible={visible}
+      onClose={onClose}
+      title="Create poll"
+      subtitle={`${filled.length} of ${opts.length} options filled`}
+    >
+      <ScrollView style={{ maxHeight: 360 }} keyboardShouldPersistTaps="handled">
+        <View style={s.pollBody}>
+          <TextInput style={s.pollInput} value={q} onChangeText={setQ} placeholder="Question" placeholderTextColor={COLORS.faint} />
+          {opts.map((o, i) => (
+            <View key={i} style={s.pollOptRowEdit}>
+              <TextInput
+                style={[s.pollInput, { flex: 1, marginBottom: 0 }]}
+                value={o}
+                onChangeText={(v) => setOpt(i, v)}
+                placeholder={`Option ${i + 1}`}
+                placeholderTextColor={COLORS.faint}
+              />
+              {/* The server needs 2; below that there is nothing to remove. */}
+              {opts.length > 2 && (
+                <TouchableOpacity
+                  onPress={() => setOpts((p) => p.filter((_, k) => k !== i))}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="close-circle" size={20} color={COLORS.faint} />
+                </TouchableOpacity>
+              )}
+            </View>
+          ))}
+          {/* 12 is the server's cap (chat_api.py truncates past it). */}
+          {opts.length < 12 && (
+            <TouchableOpacity style={s.pollAdd} onPress={() => setOpts((p) => [...p, ''])}>
+              <Ionicons name="add" size={17} color={COLORS.primary} />
+              <Text style={s.pollAddTxt}>Add option</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity style={s.pollMulti} onPress={() => setMulti((m) => !m)} activeOpacity={0.8}>
+            <Ionicons name={multi ? 'checkbox' : 'square-outline'} size={20} color={COLORS.primary} />
+            <Text style={s.pollMultiTxt}>Allow multiple answers</Text>
           </TouchableOpacity>
-        )}
-        <TouchableOpacity style={s.pollMulti} onPress={() => setMulti((m) => !m)} activeOpacity={0.8}>
-          <Ionicons name={multi ? 'checkbox' : 'square-outline'} size={20} color={COLORS.primary} />
-          <Text style={s.pollMultiTxt}>Allow multiple answers</Text>
-        </TouchableOpacity>
+        </View>
+      </ScrollView>
+      <View style={s.pollFoot}>
         <TouchableOpacity
           style={[s.pollBtn, !ready && { backgroundColor: COLORS.slate400 }]}
           disabled={!ready}
@@ -925,90 +1558,134 @@ function PollSheet({ visible, onClose, onCreate }) {
         >
           <Text style={s.pollBtnTxt}>Create poll</Text>
         </TouchableOpacity>
-      </ScrollView>
-    </Sheet>
+      </View>
+    </PopupModal>
   );
 }
 
-const s = StyleSheet.create({
+const s = themed((C) => ({
   header: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.md,
     paddingHorizontal: SPACING.md, paddingBottom: SPACING.md,
     backgroundColor: 'rgba(255,255,255,0.92)',
-    borderBottomWidth: 1, borderBottomColor: COLORS.line,
+    borderBottomWidth: 1, borderBottomColor: C.line,
   },
   headerBody: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
-  headerTitle: { fontSize: 16, fontWeight: '800', color: COLORS.navy },
-  headerSub: { fontSize: 12, color: COLORS.green, fontWeight: '600' },
+  headerTitle: { fontSize: 16, fontWeight: '800', color: C.navy },
+  headerSub: { fontSize: 12, color: C.green, fontWeight: '600' },
   // "last seen …" is information, not a live-status badge — greyed so it doesn't
   // read as "online" at a glance.
-  headerSubIdle: { color: COLORS.slate500, fontWeight: '500' },
+  headerSubIdle: { color: C.slate500, fontWeight: '500' },
   iconBtn: {
-    width: 40, height: 40, borderRadius: RADIUS.lg, backgroundColor: '#fff',
+    width: 40, height: 40, borderRadius: RADIUS.lg, backgroundColor: COLORS.card,
     alignItems: 'center', justifyContent: 'center', ...SHADOW,
   },
 
   menuItem: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.screen,
     paddingVertical: SPACING.screen, paddingHorizontal: SPACING.xs,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.line,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
   },
-  menuTxt: { fontSize: 15.5, fontWeight: '700', color: COLORS.ink },
+  menuTxt: { fontSize: 15.5, fontWeight: '700', color: C.ink },
 
-  reactPickRow: {
-    flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center',
-    paddingVertical: SPACING.md, marginBottom: SPACING.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.line,
+  // Contextual header while a message is selected.
+  selHeader: { backgroundColor: COLORS.card },
+  // The normal header is hidden rather than unmounted while a message is
+  // selected, so the message list below never shifts slot and keeps its scroll.
+  hidden: { display: 'none' },
+  selBtn: { paddingHorizontal: SPACING.md, paddingVertical: SPACING.xs },
+  selectedRow: { backgroundColor: 'rgba(30,64,175,0.07)' },
+  // Search hit, flashed for a couple of seconds after jumping to it.
+  hitRow: { backgroundColor: 'rgba(217,119,6,0.14)' },
+
+  searchField: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
+    backgroundColor: C.slate50, borderRadius: RADIUS.pill,
+    paddingHorizontal: SPACING.lg, height: 42, marginLeft: SPACING.sm,
   },
-  reactPick: { padding: SPACING.xs },
-  reactPickTxt: { fontSize: 26 },
+  searchInput: { flex: 1, fontSize: 14.5, color: C.ink, paddingVertical: 0 },
+  hitItem: {
+    paddingHorizontal: SPACING.screen, paddingVertical: SPACING.md,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
+  },
+  hitHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  hitWho: { flex: 1, fontSize: 13.5, fontWeight: '800', color: C.primary },
+  hitWhen: { fontSize: 11.5, color: C.slate400 },
+  hitBody: { fontSize: 14, color: C.slate700, marginTop: 3, lineHeight: 19 },
+
+  // Reaction strip above the selected bubble.
+  reactStrip: {
+    flexDirection: 'row', alignItems: 'center', gap: 2,
+    alignSelf: 'flex-start', marginHorizontal: SPACING.md, marginBottom: 4,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.pill,
+    paddingHorizontal: SPACING.xs, paddingVertical: 3, ...SHADOW,
+  },
+  reactStripMine: { alignSelf: 'flex-end' },
+  reactStripTheirs: { alignSelf: 'flex-start' },
+  reactPickBtn: { paddingHorizontal: 5, paddingVertical: 3, borderRadius: RADIUS.pill },
+  reactPickBtnOn: { backgroundColor: COLORS.tintBg },
+  reactPickEmoji: { fontSize: 23 },
+  reactPlus: {
+    width: 28, height: 28, borderRadius: 14, backgroundColor: C.slate100,
+    alignItems: 'center', justifyContent: 'center', marginLeft: 2,
+  },
+
+  emojiWrap: { flexDirection: 'row', flexWrap: 'wrap', padding: SPACING.md },
+  emojiCell: { width: '12.5%', alignItems: 'center', paddingVertical: 9 },
+  emojiBig: { fontSize: 26 },
 
   pinBar: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
-    backgroundColor: '#EAF1FE', borderLeftWidth: 3, borderLeftColor: COLORS.primary,
+    backgroundColor: COLORS.tintBg, borderLeftWidth: 3, borderLeftColor: C.primary,
     paddingHorizontal: SPACING.screen, paddingVertical: SPACING.md,
   },
-  pinTxt: { flex: 1, fontSize: 13, color: COLORS.slate700, fontWeight: '600' },
-  pinCount: { fontSize: 11.5, fontWeight: '800', color: COLORS.primary },
+  pinTxt: { flex: 1, fontSize: 13, color: C.slate700, fontWeight: '600' },
+  pinCount: { fontSize: 11.5, fontWeight: '800', color: C.primary },
 
-  editWrap: { borderTopWidth: 1, borderTopColor: COLORS.line, backgroundColor: '#fff', paddingBottom: Platform.OS === 'ios' ? 22 : SPACING.sm },
+  editWrap: { borderTopWidth: 1, borderTopColor: C.line, backgroundColor: COLORS.card, paddingBottom: Platform.OS === 'ios' ? 22 : SPACING.sm },
   editHead: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
     paddingHorizontal: SPACING.screen, paddingTop: SPACING.md, paddingBottom: SPACING.xs,
   },
-  editTitle: { flex: 1, fontSize: 12.5, fontWeight: '800', color: COLORS.primary },
+  editTitle: { flex: 1, fontSize: 12.5, fontWeight: '800', color: C.primary },
   editRow: { flexDirection: 'row', alignItems: 'flex-end', gap: SPACING.sm, paddingHorizontal: SPACING.md },
   editInput: {
-    flex: 1, maxHeight: 120, minHeight: 40, backgroundColor: COLORS.slate50,
+    flex: 1, maxHeight: 120, minHeight: 40, backgroundColor: C.slate50,
     borderRadius: RADIUS.sheet, paddingHorizontal: SPACING.screen, paddingVertical: 10,
-    fontSize: 15, color: COLORS.ink,
+    fontSize: 15, color: C.ink,
   },
   editSend: {
-    width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.primary,
+    width: 40, height: 40, borderRadius: 20, backgroundColor: C.primary,
     alignItems: 'center', justifyContent: 'center',
   },
 
   fwdRow: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.lg,
     paddingVertical: SPACING.md, paddingHorizontal: SPACING.xs,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.line,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
   },
-  fwdName: { flex: 1, fontSize: 15, fontWeight: '700', color: COLORS.ink },
-  fwdEmpty: { fontSize: 13.5, color: COLORS.slate500, padding: SPACING.xl, textAlign: 'center' },
+  fwdName: { flex: 1, fontSize: 15, fontWeight: '700', color: C.ink },
+  fwdEmpty: { fontSize: 13.5, color: C.slate500, padding: SPACING.xl, textAlign: 'center' },
 
+  // PopupModal has no padding of its own, so the dialog body supplies it.
+  pollBody: { paddingHorizontal: SPACING.xl, paddingTop: SPACING.sm },
+  pollOptRowEdit: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.md, marginBottom: SPACING.sm,
+  },
+  pollFoot: { paddingHorizontal: SPACING.xl, paddingBottom: SPACING.md },
   pollInput: {
-    backgroundColor: COLORS.slate50, borderRadius: RADIUS.md, borderWidth: 1, borderColor: COLORS.line,
-    paddingHorizontal: SPACING.screen, height: 46, fontSize: 15, color: COLORS.ink, marginBottom: SPACING.sm,
+    backgroundColor: C.slate50, borderRadius: RADIUS.md, borderWidth: 1, borderColor: C.line,
+    paddingHorizontal: SPACING.screen, height: 46, fontSize: 15, color: C.ink, marginBottom: SPACING.sm,
   },
   pollAdd: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: SPACING.sm },
-  pollAddTxt: { fontSize: 14, fontWeight: '700', color: COLORS.primary },
+  pollAddTxt: { fontSize: 14, fontWeight: '700', color: C.primary },
   pollMulti: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, paddingVertical: SPACING.md },
-  pollMultiTxt: { fontSize: 14.5, color: COLORS.ink, fontWeight: '600' },
+  pollMultiTxt: { fontSize: 14.5, color: C.ink, fontWeight: '600' },
   pollBtn: {
-    height: 50, borderRadius: RADIUS.lg, backgroundColor: COLORS.primary,
+    height: 50, borderRadius: RADIUS.lg, backgroundColor: C.primary,
     alignItems: 'center', justifyContent: 'center', marginTop: SPACING.sm, marginBottom: SPACING.lg,
   },
-  pollBtnTxt: { color: '#fff', fontSize: 15.5, fontWeight: '800' },
+  pollBtnTxt: { color: COLORS.onPrimary, fontSize: 15.5, fontWeight: '800' },
 
   opening: {
     position: 'absolute', alignSelf: 'center', bottom: 120,
@@ -1016,26 +1693,42 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(15,23,42,0.88)', borderRadius: RADIUS.pill,
     paddingHorizontal: SPACING.lg, paddingVertical: SPACING.sm,
   },
-  openingTxt: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  openingTxt: { color: COLORS.onPrimary, fontSize: 13, fontWeight: '700' },
 
   // Jump-to-latest, shown only once the user has scrolled away from the bottom.
   scrollDown: {
     position: 'absolute', right: SPACING.screen,
-    width: 42, height: 42, borderRadius: 21, backgroundColor: '#fff',
+    width: 42, height: 42, borderRadius: 21, backgroundColor: COLORS.card,
     alignItems: 'center', justifyContent: 'center', ...SHADOW,
   },
 
+  stepper: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, paddingRight: SPACING.xs },
+  stepTxt: { fontSize: 12.5, fontWeight: '800', color: C.slate500, minWidth: 34, textAlign: 'center' },
+
+  infoGroup: { paddingHorizontal: SPACING.xl, paddingTop: SPACING.screen, paddingBottom: SPACING.sm },
+  infoHead: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.sm },
+  infoLabel: { flex: 1, fontSize: 13, fontWeight: '800', color: C.muted },
+  infoCount: { fontSize: 12.5, fontWeight: '800', color: C.slate500 },
+  infoRow: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.lg,
+    paddingVertical: SPACING.sm,
+  },
+  infoName: { flex: 1, fontSize: 14.5, fontWeight: '600', color: C.ink },
+  infoAt: { fontSize: 12, color: C.faint, fontWeight: '600' },
+  infoEmpty: { fontSize: 13, color: C.faint, paddingVertical: SPACING.sm },
+
   askRow: {
     paddingHorizontal: SPACING.xl, paddingVertical: SPACING.screen,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.line,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
   },
-  askTxt: { fontSize: 15, color: COLORS.ink, fontWeight: '600' },
-  askNote: { fontSize: 11.5, color: COLORS.faint, padding: SPACING.xl, lineHeight: 16 },
+  askTxt: { fontSize: 15, color: C.ink, fontWeight: '700' },
+  askSub: { fontSize: 12, color: C.slate500, marginTop: 2, lineHeight: 16 },
+  askNote: { fontSize: 11.5, color: C.faint, padding: SPACING.xl, lineHeight: 16 },
 
   dayWrap: { alignItems: 'center', marginVertical: SPACING.md },
   dayTxt: {
-    fontSize: 11.5, fontWeight: '700', color: COLORS.slate500,
+    fontSize: 11.5, fontWeight: '700', color: C.slate500,
     backgroundColor: 'rgba(255,255,255,0.9)', borderRadius: RADIUS.md,
     paddingHorizontal: SPACING.lg, paddingVertical: 4, overflow: 'hidden',
   },
-});
+}));

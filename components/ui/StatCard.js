@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import Icon from './Icon';
 import { useTileAnimation } from './AnimatedTile';
-import { COLORS } from '../../theme';
+import { COLORS, themed } from '../../theme';
 
 const SW = Dimensions.get('window').width;
 export const STAT_W = (SW - 20 * 2 - 12) / 2;
@@ -34,15 +34,15 @@ export default function StatCard({ stat, count, index = 0, onPress, width = STAT
   );
 }
 
-const s = StyleSheet.create({
+const s = themed((C) => ({
   card: {
     minHeight: 108, borderRadius: 18, padding: 16,
-    shadowColor: '#334155', shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 2,
+    shadowColor: COLORS.slate700, shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 2,
   },
   chip: {
     width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.9)',
     alignItems: 'center', justifyContent: 'center',
   },
   count: { fontSize: 30, fontWeight: '900', marginTop: 8 },
-  label: { fontSize: 13, fontWeight: '700', color: COLORS.ink, marginTop: 2 },
-});
+  label: { fontSize: 13, fontWeight: '700', color: C.ink, marginTop: 2 },
+}));

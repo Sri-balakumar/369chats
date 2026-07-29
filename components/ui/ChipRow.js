@@ -4,9 +4,9 @@
 // Horizontal FlatList rather than a ScrollView so long filter sets stay virtualised.
 import React from 'react';
 import { View, Text, TouchableOpacity, FlatList, StyleSheet } from 'react-native';
-import { COLORS, RADIUS, SPACING } from '../../theme';
+import { COLORS, RADIUS, SPACING, themed } from '../../theme';
 
-export default function ChipRow({ chips, value, onChange, style }) {
+export default function ChipRow({ chips, value, onChange, onLongPress, style }) {
   return (
     <View style={[s.row, style]}>
       <FlatList
@@ -21,6 +21,7 @@ export default function ChipRow({ chips, value, onChange, style }) {
             <TouchableOpacity
               style={[s.chip, on && s.chipOn]}
               onPress={() => onChange(item.key)}
+              onLongPress={onLongPress ? () => onLongPress(item.key) : undefined}
               activeOpacity={0.85}
             >
               <Text style={[s.txt, on && s.txtOn]}>
@@ -34,13 +35,13 @@ export default function ChipRow({ chips, value, onChange, style }) {
   );
 }
 
-const s = StyleSheet.create({
+const s = themed((C) => ({
   row: { paddingBottom: SPACING.sm },
   chip: {
     paddingHorizontal: SPACING.lg, paddingVertical: SPACING.xs, borderRadius: RADIUS.pill,
-    borderWidth: 1, borderColor: COLORS.line, backgroundColor: '#fff',
+    borderWidth: 1, borderColor: C.line, backgroundColor: COLORS.card,
   },
-  chipOn: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  txt: { fontSize: 12, fontWeight: '700', color: COLORS.muted },
-  txtOn: { color: '#fff' },
-});
+  chipOn: { backgroundColor: C.primary, borderColor: C.primary },
+  txt: { fontSize: 12, fontWeight: '700', color: C.muted },
+  txtOn: { color: COLORS.onPrimary },
+}));

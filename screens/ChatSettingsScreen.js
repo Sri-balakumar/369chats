@@ -9,15 +9,15 @@
 // job, so they are labelled as affecting this device.
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Switch,
+  View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert,
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
-import { COLORS, SHADOW, RADIUS, SPACING, TOP } from '../theme';
-import { Screen, Loader, EmptyState, Avatar, Sheet, PopupModal } from '../components/ui';
+import { COLORS, SHADOW, RADIUS, SPACING, TOP, themed, useTheme, THEME_VARIANTS } from '../theme';
+import { Screen, Loader, EmptyState, Avatar, Sheet, PopupModal, Switch } from '../components/ui';
 import CameraCaptureModal from '../components/CameraCaptureModal';
 import * as chat from '../services/chat';
 import { requestOtp, verifyOtp } from '../services/appAuth';
@@ -31,18 +31,29 @@ const LAST_SEEN = [
   { key: 'contacts', label: 'My contacts' },
   { key: 'nobody', label: 'Nobody' },
 ];
+// The web client's own list, same order (chat_app.js ABOUT_PRESETS).
+const ABOUT_PRESETS = [
+  'Available', 'Busy', 'At work', 'In a meeting', 'Urgent calls only',
+  'At the gym', 'Sleeping', 'Battery about to die', "Can't talk now", 'On holiday',
+];
+
 const ONLINE = [
   { key: 'everyone', label: 'Everyone' },
   { key: 'same', label: 'Same as last seen' },
 ];
 
-export default function ChatSettingsScreen({ user, onBack, onLogout }) {
+export default function ChatSettingsScreen({ user, onBack, onOpenGmeet, onLogout }) {
   // Edge-to-edge draws under the nav bar; reserve that space at the bottom.
   const insets = useSafeAreaInsets();
   const [me, setMe] = useState(null);
+  // Google Meet config is admin-only server-side, so the row only appears for
+  // admins — the same t-if the web client uses on its Settings entry.
+  const [gmeet, setGmeet] = useState(null);
+  const { variant: themeVariant, setVariant: setThemeVariant, resetAppearance } = useTheme();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [editOpen, setEditOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);   // preset list expanded
   const [picker, setPicker] = useState(null);   // 'lastSeen' | 'online'
   const [name, setName] = useState('');
   const [about, setAbout] = useState('');
@@ -62,6 +73,15 @@ export default function ChatSettingsScreen({ user, onBack, onLogout }) {
   const [pwBusy, setPwBusy] = useState(false);
   const [pwErr, setPwErr] = useState('');
   const [resendIn, setResendIn] = useState(0);  // seconds before "Resend" is allowed
+
+  // Cheap and memoised in services/chat, so this costs nothing on a revisit.
+  useEffect(() => {
+    let alive = true;
+    chat.gmeetStatus()
+      .then((st) => { if (alive) setGmeet(st); })
+      .catch((e) => log.warn('gmeet status failed', e?.message));
+    return () => { alive = false; };
+  }, []);
 
   // Tick the resend cooldown down while the OTP popup is open.
   useEffect(() => {
@@ -186,7 +206,7 @@ export default function ChatSettingsScreen({ user, onBack, onLogout }) {
         <View style={s.hero}>
           <TouchableOpacity onPress={() => setPhotoOpen(true)} activeOpacity={0.85}>
             <Avatar name={me.name} uri={me.avatarUrl} size={104} />
-            <View style={s.camera}><Ionicons name="camera" size={15} color="#fff" /></View>
+            <View style={s.camera}><Ionicons name="camera" size={15} color={COLORS.onPrimary} /></View>
           </TouchableOpacity>
           <Text style={s.name}>{me.name}</Text>
           <Text style={s.about}>{me.about || 'Available'}</Text>
@@ -238,6 +258,45 @@ export default function ChatSettingsScreen({ user, onBack, onLogout }) {
           Notification settings apply to this device. Muting a specific chat is done from that chat.
         </Text>
 
+        {/* Appearance — accent only. The app is light-only by design; there is
+            no Display (light/dark/system) choice on either client. */}
+        <Text style={s.section}>Appearance</Text>
+        <View style={s.card}>
+          <Text style={s.subhead}>Accent colour</Text>
+          <View style={s.swatchGrid}>
+            {THEME_VARIANTS.map((v) => {
+              const on = themeVariant === v.id;
+              return (
+                <TouchableOpacity
+                  key={v.id}
+                  style={s.swatchCell}
+                  onPress={() => setThemeVariant(v.id)}
+                  activeOpacity={0.8}
+                >
+                  {/* Two-tone chip = brand + accent, the same swatch the web
+                      picker draws as a 135° gradient. */}
+                  <View style={[s.swatch, on && s.swatchOn]}>
+                    <View style={[s.swatchHalf, { backgroundColor: v.swatch[0] }]} />
+                    <View style={[s.swatchHalf, { backgroundColor: v.swatch[1] }]} />
+                    {on && (
+                      <View style={s.swatchCheck}>
+                        <Ionicons name="checkmark" size={15} color={COLORS.onPrimary} />
+                      </View>
+                    )}
+                  </View>
+                  <Text style={[s.swatchTxt, on && s.swatchTxtOn]} numberOfLines={1}>{v.name}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <TouchableOpacity style={s.resetBtn} onPress={resetAppearance} activeOpacity={0.7}>
+            <Ionicons name="refresh" size={15} color={COLORS.primary} />
+            <Text style={s.resetTxt}>Reset to default</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={s.note}>Your theme is saved on this device.</Text>
+
         {/* Connection details — the only place the Odoo server/db/uid surface.
             Came from the old Profile tab. */}
         <Text style={s.section}>Connection</Text>
@@ -248,6 +307,21 @@ export default function ChatSettingsScreen({ user, onBack, onLogout }) {
           <Detail label="Server" value={user?.serverUrl || '—'} />
           <Detail label="User ID" value={user?.uid != null ? String(user.uid) : '—'} />
         </View>
+
+        {/* Workspace-wide Google Meet setup — same panel the web client has. */}
+        {!!gmeet?.isAdmin && (
+          <>
+            <Text style={s.section}>Workspace</Text>
+            <View style={s.card}>
+              <Item
+                icon="videocam-outline"
+                label="Google Meet"
+                value={gmeet.connected ? 'Connected' : 'Not connected — tap to set up'}
+                onPress={onOpenGmeet}
+              />
+            </View>
+          </>
+        )}
 
         <Text style={s.section}>Account</Text>
         <View style={s.card}>
@@ -272,21 +346,57 @@ export default function ChatSettingsScreen({ user, onBack, onLogout }) {
         <Text style={s.footer}>Alphalize 369Chats · v1.0</Text>
       </ScrollView>
 
-      <Sheet visible={editOpen} onClose={() => setEditOpen(false)} title="Edit profile">
-        <Text style={s.fieldLabel}>Name</Text>
-        <TextInput style={s.input} value={name} onChangeText={setName} placeholder="Your name" placeholderTextColor={COLORS.faint} />
-        <Text style={s.fieldLabel}>About</Text>
-        <TextInput
-          style={s.input} value={about} onChangeText={setAbout} maxLength={139}
-          placeholder="Available" placeholderTextColor={COLORS.faint}
-        />
-        <TouchableOpacity
-          style={[s.primaryBtn, !name.trim() && { backgroundColor: COLORS.slate400 }]}
-          disabled={!name.trim()} onPress={saveProfile}
-        >
-          <Text style={s.primaryTxt}>Save</Text>
-        </TouchableOpacity>
-      </Sheet>
+      {/* Centred, not a bottom sheet: it is a short form the user is answering,
+          and the keyboard pushing a bottom sheet around left the Save button
+          half off-screen. */}
+      <PopupModal visible={editOpen} onClose={() => setEditOpen(false)} title="Edit profile">
+        <View style={s.dialogBody}>
+          <Text style={s.fieldLabel}>Name</Text>
+          <TextInput style={s.input} value={name} onChangeText={setName} placeholder="Your name" placeholderTextColor={COLORS.faint} />
+          <Text style={s.fieldLabel}>About</Text>
+          <TextInput
+            style={s.input} value={about} onChangeText={setAbout} maxLength={139}
+            placeholder="Available" placeholderTextColor={COLORS.faint}
+          />
+          {/* The same ten presets the web client offers, in the same order.
+              Still free-text above — the presets are a shortcut, not a limit. */}
+          <TouchableOpacity
+            style={s.aboutToggle}
+            onPress={() => setAboutOpen((v) => !v)}
+            activeOpacity={0.7}
+          >
+            <Text style={s.aboutToggleTxt}>Choose a status</Text>
+            <Ionicons
+              name={aboutOpen ? 'chevron-up' : 'chevron-down'}
+              size={16} color={COLORS.primary}
+            />
+          </TouchableOpacity>
+          {aboutOpen && (
+            <View style={s.aboutList}>
+              {ABOUT_PRESETS.map((p) => {
+                const on = about.trim() === p;
+                return (
+                  <TouchableOpacity
+                    key={p}
+                    style={s.aboutOpt}
+                    onPress={() => { setAbout(p); setAboutOpen(false); }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[s.aboutOptTxt, on && s.aboutOptTxtOn]}>{p}</Text>
+                    {on && <Ionicons name="checkmark" size={16} color={COLORS.primary} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+          <TouchableOpacity
+            style={[s.primaryBtn, !name.trim() && { backgroundColor: COLORS.slate400 }]}
+            disabled={!name.trim()} onPress={saveProfile}
+          >
+            <Text style={s.primaryTxt}>Save</Text>
+          </TouchableOpacity>
+        </View>
+      </PopupModal>
 
       <PopupModal
         visible={!!picker}
@@ -339,7 +449,7 @@ export default function ChatSettingsScreen({ user, onBack, onLogout }) {
             style={[s.primaryBtn, pwBusy && { backgroundColor: COLORS.slate400 }]}
             disabled={pwBusy} onPress={sendCode}
           >
-            {pwBusy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryTxt}>Send code</Text>}
+            {pwBusy ? <ActivityIndicator color={COLORS.onPrimary} /> : <Text style={s.primaryTxt}>Send code</Text>}
           </TouchableOpacity>
         </View>
       </PopupModal>
@@ -374,7 +484,7 @@ export default function ChatSettingsScreen({ user, onBack, onLogout }) {
               style={[s.primaryBtn, pwBusy && { backgroundColor: COLORS.slate400 }]}
               disabled={pwBusy} onPress={submitNewPw}
             >
-              {pwBusy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryTxt}>Verify & set password</Text>}
+              {pwBusy ? <ActivityIndicator color={COLORS.onPrimary} /> : <Text style={s.primaryTxt}>Verify & set password</Text>}
             </TouchableOpacity>
             <TouchableOpacity disabled={resendIn > 0 || pwBusy} onPress={sendCode} style={{ marginTop: SPACING.md }}>
               <Text style={[s.resend, (resendIn > 0 || pwBusy) && { color: COLORS.faint }]}>
@@ -451,88 +561,137 @@ function Toggle({ icon, label, sub, value, onChange }) {
   );
 }
 
-const s = StyleSheet.create({
+const s = themed((C) => ({
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingBottom: SPACING.md,
   },
-  headerTitle: { flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '900', color: COLORS.navy },
+  headerTitle: { flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '900', color: C.navy },
   iconBtn: {
-    width: 40, height: 40, borderRadius: RADIUS.lg, backgroundColor: '#fff',
+    width: 40, height: 40, borderRadius: RADIUS.lg, backgroundColor: COLORS.card,
     alignItems: 'center', justifyContent: 'center', ...SHADOW,
   },
 
   hero: { alignItems: 'center', paddingVertical: SPACING.xl, gap: SPACING.xs },
   camera: {
     position: 'absolute', right: 0, bottom: 0,
-    width: 30, height: 30, borderRadius: 15, backgroundColor: COLORS.primary,
-    alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#fff',
+    width: 30, height: 30, borderRadius: 15, backgroundColor: C.primary,
+    alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: COLORS.card,
   },
-  name: { fontSize: 21, fontWeight: '900', color: COLORS.navy, marginTop: SPACING.sm },
-  about: { fontSize: 13.5, color: COLORS.slate500 },
-  mobile: { fontSize: 13, color: COLORS.faint },
+  name: { fontSize: 21, fontWeight: '900', color: C.navy, marginTop: SPACING.sm },
+  about: { fontSize: 13.5, color: C.slate500 },
+  mobile: { fontSize: 13, color: C.faint },
   editBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: SPACING.sm,
-    backgroundColor: '#EAF1FE', borderRadius: RADIUS.pill, paddingHorizontal: 14, paddingVertical: 7,
+    backgroundColor: COLORS.tintBg, borderRadius: RADIUS.pill, paddingHorizontal: 14, paddingVertical: 7,
   },
-  editTxt: { fontSize: 13, fontWeight: '800', color: COLORS.primary },
+  editTxt: { fontSize: 13, fontWeight: '800', color: C.primary },
 
   section: {
-    fontSize: 12.5, fontWeight: '900', color: COLORS.muted, letterSpacing: 0.8,
+    fontSize: 12.5, fontWeight: '900', color: C.muted, letterSpacing: 0.8,
     paddingHorizontal: SPACING.xl, marginBottom: SPACING.sm, textTransform: 'uppercase',
   },
   card: {
     marginHorizontal: SPACING.screen, marginBottom: SPACING.screen,
-    backgroundColor: '#fff', borderRadius: RADIUS.xl, borderWidth: 1, borderColor: COLORS.line,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.xl, borderWidth: 1, borderColor: C.line,
     overflow: 'hidden', ...SHADOW,
   },
   row: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.screen,
     paddingHorizontal: SPACING.screen, paddingVertical: SPACING.screen,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.line,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
   },
-  rowLabel: { fontSize: 15, color: COLORS.ink, fontWeight: '700' },
-  rowValue: { fontSize: 12.5, color: COLORS.slate500, marginTop: 2 },
-  rowSub: { fontSize: 11.5, color: COLORS.slate500, marginTop: 2, lineHeight: 16 },
-  note: { fontSize: 11.5, color: COLORS.faint, paddingHorizontal: SPACING.xl, lineHeight: 16 },
+  rowLabel: { fontSize: 15, color: C.ink, fontWeight: '700' },
+  rowValue: { fontSize: 12.5, color: C.slate500, marginTop: 2 },
+  rowSub: { fontSize: 11.5, color: C.slate500, marginTop: 2, lineHeight: 16 },
+  note: { fontSize: 11.5, color: C.faint, paddingHorizontal: SPACING.xl, lineHeight: 16 },
 
-  fieldLabel: { fontSize: 12.5, fontWeight: '800', color: COLORS.muted, marginTop: SPACING.md, marginBottom: SPACING.xs },
+  fieldLabel: { fontSize: 12.5, fontWeight: '800', color: C.muted, marginTop: SPACING.md, marginBottom: SPACING.xs },
   input: {
-    backgroundColor: COLORS.slate50, borderRadius: RADIUS.md, borderWidth: 1, borderColor: COLORS.line,
-    paddingHorizontal: SPACING.screen, height: 46, fontSize: 15, color: COLORS.ink,
+    backgroundColor: C.slate50, borderRadius: RADIUS.md, borderWidth: 1, borderColor: C.line,
+    paddingHorizontal: SPACING.screen, height: 46, fontSize: 15, color: C.ink,
   },
   primaryBtn: {
-    height: 50, borderRadius: RADIUS.lg, backgroundColor: COLORS.primary,
+    height: 50, borderRadius: RADIUS.lg, backgroundColor: C.primary,
     alignItems: 'center', justifyContent: 'center', marginTop: SPACING.screen, marginBottom: SPACING.sm,
   },
-  primaryTxt: { color: '#fff', fontSize: 15.5, fontWeight: '800' },
+  primaryTxt: { color: COLORS.onPrimary, fontSize: 15.5, fontWeight: '800' },
 
   pick: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: SPACING.xl, paddingVertical: SPACING.screen,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.line,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
   },
-  pickTxt: { fontSize: 15, color: COLORS.ink, fontWeight: '600' },
-  pickNote: { fontSize: 11.5, color: COLORS.faint, padding: SPACING.xl, lineHeight: 16 },
+  pickTxt: { fontSize: 15, color: C.ink, fontWeight: '600' },
+  pickNote: { fontSize: 11.5, color: C.faint, padding: SPACING.xl, lineHeight: 16 },
 
-  detailLabel: { fontSize: 11.5, color: COLORS.slate500, fontWeight: '700' },
-  detailValue: { fontSize: 14, color: COLORS.ink, fontWeight: '600', marginTop: 2 },
+  subhead: {
+    fontSize: 11.5, fontWeight: '800', color: C.faint, letterSpacing: 0.5,
+    paddingHorizontal: SPACING.screen, paddingTop: SPACING.screen, textTransform: 'uppercase',
+  },
+  // PopupModal has no padding of its own — a centred dialog's content needs it.
+  aboutToggle: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: SPACING.md,
+  },
+  aboutToggleTxt: { fontSize: 13.5, fontWeight: '800', color: C.primary },
+  aboutList: {
+    borderWidth: 1, borderColor: C.line, borderRadius: RADIUS.md,
+    backgroundColor: C.slate50, overflow: 'hidden', marginBottom: SPACING.sm,
+  },
+  aboutOpt: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: SPACING.screen, paddingVertical: SPACING.lg,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
+  },
+  aboutOptTxt: { fontSize: 14.5, color: C.ink },
+  aboutOptTxtOn: { color: C.primary, fontWeight: '800' },
+  dialogBody: { paddingHorizontal: SPACING.xl, paddingBottom: SPACING.lg },
+  // 4 across on a narrow phone, so seven variants land as 4 + 3.
+  swatchGrid: {
+    flexDirection: 'row', flexWrap: 'wrap',
+    paddingHorizontal: SPACING.md, paddingTop: SPACING.md, paddingBottom: SPACING.xs,
+  },
+  swatchCell: { width: '25%', alignItems: 'center', gap: 5, marginBottom: SPACING.screen },
+  swatch: {
+    width: 44, height: 44, borderRadius: 22, flexDirection: 'row', overflow: 'hidden',
+    borderWidth: 2, borderColor: 'transparent',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  swatchOn: { borderColor: C.primary },
+  // Two flex halves fill the chip; the tick floats over the join.
+  swatchHalf: { flex: 1, alignSelf: 'stretch' },
+  swatchCheck: {
+    position: 'absolute',
+    width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  swatchTxt: { fontSize: 11, fontWeight: '700', color: C.slate500 },
+  resetBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    paddingVertical: SPACING.lg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.line,
+  },
+  resetTxt: { fontSize: 13.5, fontWeight: '800', color: C.primary },
+  swatchTxtOn: { color: C.primary, fontWeight: '800' },
+
+  detailLabel: { fontSize: 11.5, color: C.slate500, fontWeight: '700' },
+  detailValue: { fontSize: 14, color: C.ink, fontWeight: '600', marginTop: 2 },
   footer: {
-    fontSize: 11.5, color: COLORS.faint, textAlign: 'center',
+    fontSize: 11.5, color: C.faint, textAlign: 'center',
     marginTop: SPACING.md, marginBottom: SPACING.xl,
   },
 
   srcRow: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.lg,
     paddingVertical: SPACING.screen, paddingHorizontal: SPACING.xs,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.line,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
   },
-  srcTxt: { fontSize: 15.5, fontWeight: '700', color: COLORS.ink },
-  srcNote: { fontSize: 11.5, color: COLORS.faint, paddingTop: SPACING.md, paddingBottom: SPACING.sm },
+  srcTxt: { fontSize: 15.5, fontWeight: '700', color: C.ink },
+  srcNote: { fontSize: 11.5, color: C.faint, paddingTop: SPACING.md, paddingBottom: SPACING.sm },
 
-  pwBody: { fontSize: 14, color: COLORS.muted, lineHeight: 20, marginBottom: SPACING.screen },
-  pwErr: { fontSize: 12.5, color: COLORS.red, fontWeight: '700', marginBottom: SPACING.sm },
+  pwBody: { fontSize: 14, color: C.muted, lineHeight: 20, marginBottom: SPACING.screen },
+  pwErr: { fontSize: 12.5, color: C.red, fontWeight: '700', marginBottom: SPACING.sm },
   pwRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.sm },
   eye: { position: 'absolute', right: SPACING.lg },
-  resend: { fontSize: 13, color: COLORS.primary, fontWeight: '800', textAlign: 'center' },
-});
+  resend: { fontSize: 13, color: C.primary, fontWeight: '800', textAlign: 'center' },
+}));

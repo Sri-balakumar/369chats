@@ -12,7 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path, Circle, Ellipse } from 'react-native-svg';
 import LoginArt from '../components/LoginArt';
-import { COLORS } from '../theme';
+import { COLORS, themed } from '../theme';
 import { saveSession } from '../api/session';
 import { loginCheck, appLogin, setAppPassword, requestOtp, verifyOtp, getMobileConfig } from '../services/appAuth';
 import { createLogger } from '../api/logger';
@@ -21,11 +21,11 @@ const log = createLogger('AppLogin');
 const { width: SW } = Dimensions.get('window');
 
 // Alphalize blue — buttons / links.
-const WATER = '#1F6FE5';
+const WATER = COLORS.primary;
 
 // Blue "water" wave at the top of the form sheet — clearly visible, flows down.
 const WAVE_H = 92;
-const WAVE_LIGHT = '#6FA0F2';   // lighter drifting layer
+const WAVE_LIGHT = COLORS.primaryDark;   // lighter drifting layer
 const WAVE_D =
   `M0,${WAVE_H} L0,48 ` +
   `C ${SW * 0.18},14 ${SW * 0.36},66 ${SW * 0.54},46 ` +
@@ -260,8 +260,8 @@ export default function AppLoginScreen({ onLogin, onNeedSetup }) {
                   <View style={s.decorLine} />
                   <Text style={s.decorTxt}>
                     <Text style={{ color: COLORS.navy }}>Track. </Text>
-                    <Text style={{ color: '#1E6FD9' }}>Measure. </Text>
-                    <Text style={{ color: '#2BB673' }}>Achieve.</Text>
+                    <Text style={{ color: COLORS.primary }}>Measure. </Text>
+                    <Text style={{ color: COLORS.green }}>Achieve.</Text>
                   </Text>
                   <View style={s.decorLine} />
                 </View>
@@ -285,7 +285,7 @@ export default function AppLoginScreen({ onLogin, onNeedSetup }) {
                       </View>
                       {!!error && <Text style={s.err}>{error}</Text>}
                       <TouchableOpacity style={s.primaryBtn} onPress={continueMobile} disabled={busy} activeOpacity={0.9}>
-                        {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryTxt}>Continue</Text>}
+                        {busy ? <ActivityIndicator color={COLORS.onPrimary} /> : <Text style={s.primaryTxt}>Continue</Text>}
                       </TouchableOpacity>
                     </View>
                   )}
@@ -312,7 +312,7 @@ export default function AppLoginScreen({ onLogin, onNeedSetup }) {
                       </View>
                       {!!error && <Text style={s.err}>{error}</Text>}
                       <TouchableOpacity style={s.primaryBtn} onPress={doLogin} disabled={busy} activeOpacity={0.9}>
-                        {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryTxt}>Log In</Text>}
+                        {busy ? <ActivityIndicator color={COLORS.onPrimary} /> : <Text style={s.primaryTxt}>Log In</Text>}
                       </TouchableOpacity>
                       <TouchableOpacity onPress={startOtp} style={{ marginTop: 14 }} disabled={busy}>
                         <Text style={s.link}>Forgot password?</Text>
@@ -351,7 +351,7 @@ export default function AppLoginScreen({ onLogin, onNeedSetup }) {
                       </View>
                       {!!error && <Text style={s.err}>{error}</Text>}
                       <TouchableOpacity style={s.primaryBtn} onPress={submitOtp} disabled={busy} activeOpacity={0.9}>
-                        {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryTxt}>Verify & Set Password</Text>}
+                        {busy ? <ActivityIndicator color={COLORS.onPrimary} /> : <Text style={s.primaryTxt}>Verify & Set Password</Text>}
                       </TouchableOpacity>
                       <TouchableOpacity onPress={startOtp} style={{ marginTop: 12 }} disabled={busy || resendIn > 0}>
                         <Text style={[s.link, (busy || resendIn > 0) && s.linkDisabled]}>
@@ -385,7 +385,7 @@ export default function AppLoginScreen({ onLogin, onNeedSetup }) {
                       </View>
                       {!!error && <Text style={s.err}>{error}</Text>}
                       <TouchableOpacity style={s.primaryBtn} onPress={saveNewPassword} disabled={busy} activeOpacity={0.9}>
-                        {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryTxt}>Save & Continue</Text>}
+                        {busy ? <ActivityIndicator color={COLORS.onPrimary} /> : <Text style={s.primaryTxt}>Save & Continue</Text>}
                       </TouchableOpacity>
                     </View>
                   )}
@@ -406,13 +406,13 @@ export default function AppLoginScreen({ onLogin, onNeedSetup }) {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#F5F9FD' },
-  heroWrap: { width: SW, backgroundColor: '#F5F9FD', alignItems: 'center', justifyContent: 'center', paddingBottom: 24 },
+const s = themed((C) => ({
+  root: { flex: 1, backgroundColor: COLORS.slate50 },
+  heroWrap: { width: SW, backgroundColor: COLORS.slate50, alignItems: 'center', justifyContent: 'center', paddingBottom: 24 },
 
   sheet: { flex: 1, marginTop: -24, backgroundColor: 'transparent' },
   waveLayer: { position: 'absolute', top: 0, left: 0 },
-  sheetBody: { flex: 1, backgroundColor: '#fff', marginTop: WAVE_H - 1 },
+  sheetBody: { flex: 1, backgroundColor: COLORS.card, marginTop: WAVE_H - 1 },
   bottomDeco: { position: 'absolute', left: 0, right: 0, bottom: 0 },
 
   // Sit the form near the top (just under the water flow), moved up.
@@ -421,27 +421,27 @@ const s = StyleSheet.create({
   logoWrap: { alignSelf: 'center', marginBottom: 2 },
   logo: { width: 168, height: 90 },
   decorRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 16 },
-  decorLine: { width: 22, height: 1.5, backgroundColor: '#CBD6E6', borderRadius: 1 },
+  decorLine: { width: 22, height: 1.5, backgroundColor: COLORS.line, borderRadius: 1 },
   decorTxt: { fontSize: 13, fontWeight: '800' },
-  welcome: { fontSize: 23, fontWeight: '900', color: COLORS.navy },
-  welcomeSub: { fontSize: 13.5, color: COLORS.muted, marginTop: 4, marginBottom: 20 },
-  title: { fontSize: 22, fontWeight: '900', color: COLORS.navy },
-  sub: { fontSize: 13.5, color: COLORS.muted, marginTop: 4, marginBottom: 16 },
+  welcome: { fontSize: 23, fontWeight: '900', color: C.navy },
+  welcomeSub: { fontSize: 13.5, color: C.muted, marginTop: 4, marginBottom: 20 },
+  title: { fontSize: 22, fontWeight: '900', color: C.navy },
+  sub: { fontSize: 13.5, color: C.muted, marginTop: 4, marginBottom: 16 },
   field: {
-    flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#F4F7FB',
-    borderWidth: 1.5, borderColor: '#E6ECF5', borderRadius: 12, paddingHorizontal: 14, height: 54, marginBottom: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: COLORS.slate50,
+    borderWidth: 1.5, borderColor: COLORS.slate50, borderRadius: 12, paddingHorizontal: 14, height: 54, marginBottom: 12,
   },
-  input: { flex: 1, fontSize: 15.5, color: COLORS.ink, height: '100%' },
-  dialPrefix: { fontSize: 15.5, fontWeight: '700', color: COLORS.ink, marginRight: -4 },
-  err: { color: COLORS.red, fontSize: 13, marginBottom: 8 },
-  pwWarn: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: '#FEECEC', borderWidth: 1, borderColor: COLORS.red, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12, marginBottom: 14 },
-  pwWarnTxt: { flex: 1, color: COLORS.red, fontSize: 12.5, lineHeight: 18, fontWeight: '600' },
+  input: { flex: 1, fontSize: 15.5, color: C.ink, height: '100%' },
+  dialPrefix: { fontSize: 15.5, fontWeight: '700', color: C.ink, marginRight: -4 },
+  err: { color: C.red, fontSize: 13, marginBottom: 8 },
+  pwWarn: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: COLORS.redBg, borderWidth: 1, borderColor: C.red, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12, marginBottom: 14 },
+  pwWarnTxt: { flex: 1, color: C.red, fontSize: 12.5, lineHeight: 18, fontWeight: '600' },
   primaryBtn: { backgroundColor: WATER, borderRadius: 12, height: 54, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
-  primaryTxt: { color: '#fff', fontSize: 16.5, fontWeight: '800' },
+  primaryTxt: { color: COLORS.onPrimary, fontSize: 16.5, fontWeight: '800' },
   link: { color: WATER, fontSize: 14, fontWeight: '700', textAlign: 'center' },
-  linkDisabled: { color: COLORS.faint },
-  linkMuted: { color: COLORS.muted, fontSize: 13.5, fontWeight: '600', textAlign: 'center' },
+  linkDisabled: { color: C.faint },
+  linkMuted: { color: C.muted, fontSize: 13.5, fontWeight: '600', textAlign: 'center' },
 
   footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingTop: 10 },
-  footerTxt: { fontSize: 12, color: COLORS.muted, fontWeight: '600' },
-});
+  footerTxt: { fontSize: 12, color: C.muted, fontWeight: '600' },
+}));

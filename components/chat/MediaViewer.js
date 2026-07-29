@@ -14,7 +14,8 @@ import {
   ActivityIndicator, Alert, Dimensions, Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS, RADIUS, SPACING } from '../../theme';
+import AuthImage from './AuthImage';
+import { COLORS, RADIUS, SPACING, themed } from '../../theme';
 import openAttachment from '../../utils/openAttachment';
 import { createLogger } from '../../api/logger';
 
@@ -49,28 +50,35 @@ export default function MediaViewer({ visible, message, onClose }) {
       <View style={s.root}>
         <View style={s.bar}>
           <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Ionicons name="close" size={26} color="#fff" />
+            <Ionicons name="close" size={26} color={COLORS.onOverlay} />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
             <Text style={s.title} numberOfLines={1}>{message.fileName || message.authorName}</Text>
             <Text style={s.sub} numberOfLines={1}>{message.authorName}</Text>
           </View>
-          <TouchableOpacity
-            onPress={() => openExternally({ share: true })}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            disabled={busy}
-          >
-            <Ionicons name="share-outline" size={23} color="#fff" />
-          </TouchableOpacity>
+          {/* No share on a view-once file — saving or forwarding it would defeat
+              the entire point of sending it that way. */}
+          {!message.viewOnce && (
+            <TouchableOpacity
+              onPress={() => openExternally({ share: true })}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              disabled={busy}
+            >
+              <Ionicons name="share-outline" size={23} color={COLORS.onOverlay} />
+            </TouchableOpacity>
+          )}
         </View>
 
         <View style={s.body}>
           {isImage && !failed ? (
-            <Image
-              source={{ uri: message.mediaUrl }}
+            // Cookie-authenticated route — see AuthImage for why a plain <Image>
+            // renders an empty frame here.
+            <AuthImage
+              uri={message.mediaUrl}
+              id={message.id}
+              mimetype={message.mimetype}
               style={s.image}
               resizeMode="contain"
-              onError={() => setFailed(true)}
             />
           ) : (
             <View style={s.placeholder}>
@@ -80,7 +88,7 @@ export default function MediaViewer({ visible, message, onClose }) {
                     : message.kind === 'audio' ? 'musical-notes'
                       : failed ? 'alert-circle-outline' : 'document-text'
                 }
-                size={64} color="#fff"
+                size={64} color={COLORS.onOverlay}
               />
               <Text style={s.placeholderTxt}>
                 {failed
@@ -91,10 +99,10 @@ export default function MediaViewer({ visible, message, onClose }) {
               {!!message.fileName && <Text style={s.fileName} numberOfLines={2}>{message.fileName}</Text>}
               <TouchableOpacity style={s.openBtn} onPress={() => openExternally()} disabled={busy} activeOpacity={0.9}>
                 {busy
-                  ? <ActivityIndicator color="#fff" />
+                  ? <ActivityIndicator color={COLORS.onOverlay} />
                   : (
                     <>
-                      <Ionicons name="open-outline" size={18} color="#fff" />
+                      <Ionicons name="open-outline" size={18} color={COLORS.onOverlay} />
                       <Text style={s.openTxt}>
                         {message.kind === 'video' || message.kind === 'audio' ? 'Play' : 'Open'}
                       </Text>
@@ -114,30 +122,30 @@ export default function MediaViewer({ visible, message, onClose }) {
   );
 }
 
-const s = StyleSheet.create({
+const s = themed((C) => ({
   root: { flex: 1, backgroundColor: 'rgba(0,0,0,0.96)' },
   bar: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.screen,
     paddingTop: Platform.OS === 'android' ? 44 : 58,
     paddingHorizontal: SPACING.screen, paddingBottom: SPACING.md,
   },
-  title: { color: '#fff', fontSize: 15, fontWeight: '800' },
+  title: { color: COLORS.onOverlay, fontSize: 15, fontWeight: '800' },
   sub: { color: 'rgba(255,255,255,0.6)', fontSize: 12, marginTop: 1 },
 
   body: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   image: { width: SW, height: SH * 0.7 },
 
   placeholder: { alignItems: 'center', gap: SPACING.lg, paddingHorizontal: 30 },
-  placeholderTxt: { color: '#fff', fontSize: 17, fontWeight: '800' },
+  placeholderTxt: { color: COLORS.onOverlay, fontSize: 17, fontWeight: '800' },
   fileName: { color: 'rgba(255,255,255,0.65)', fontSize: 13, textAlign: 'center' },
   openBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm,
     marginTop: SPACING.sm, minWidth: 150, height: 46,
-    borderRadius: RADIUS.lg, backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.lg, backgroundColor: C.primary,
   },
-  openTxt: { color: '#fff', fontSize: 15, fontWeight: '800' },
+  openTxt: { color: COLORS.onOverlay, fontSize: 15, fontWeight: '800' },
   hint: { color: 'rgba(255,255,255,0.4)', fontSize: 11.5 },
 
   caption: { paddingHorizontal: SPACING.xl, paddingBottom: 40, paddingTop: SPACING.md },
-  captionTxt: { color: '#fff', fontSize: 14.5, textAlign: 'center' },
-});
+  captionTxt: { color: COLORS.onOverlay, fontSize: 14.5, textAlign: 'center' },
+}));

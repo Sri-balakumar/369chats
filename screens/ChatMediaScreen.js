@@ -10,9 +10,10 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, SHADOW, RADIUS, SPACING, TOP } from '../theme';
+import { COLORS, SHADOW, RADIUS, SPACING, TOP, themed } from '../theme';
 import { Screen, ChipRow, Loader, EmptyState, emptyWrap } from '../components/ui';
 import MediaViewer from '../components/chat/MediaViewer';
+import AuthImage from '../components/chat/AuthImage';
 import openAttachment from '../utils/openAttachment';
 import * as chat from '../services/chat';
 import { createLogger } from '../api/logger';
@@ -125,9 +126,10 @@ export default function ChatMediaScreen({ conversation, onBack }) {
             <View style={s.gridRow}>
               {item.map((it) => (
                 <TouchableOpacity key={it.id} style={s.tile} activeOpacity={0.85} onPress={() => openItem(it)}>
-                  <Image source={{ uri: it.url }} style={s.tileImg} resizeMode="cover" />
+                  {/* Authenticated route — a plain <Image> renders blank here. */}
+                  <AuthImage uri={it.url} id={it.id} style={s.tileImg} />
                   {it.kind === 'video' && (
-                    <View style={s.playBadge}><Ionicons name="play" size={16} color="#fff" /></View>
+                    <View style={s.playBadge}><Ionicons name="play" size={16} color={COLORS.onPrimary} /></View>
                   )}
                 </TouchableOpacity>
               ))}
@@ -164,25 +166,25 @@ export default function ChatMediaScreen({ conversation, onBack }) {
   );
 }
 
-const s = StyleSheet.create({
+const s = themed((C) => ({
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingBottom: SPACING.md,
   },
-  headerTitle: { flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '900', color: COLORS.navy },
+  headerTitle: { flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '900', color: C.navy },
   iconBtn: {
-    width: 40, height: 40, borderRadius: RADIUS.lg, backgroundColor: '#fff',
+    width: 40, height: 40, borderRadius: RADIUS.lg, backgroundColor: COLORS.card,
     alignItems: 'center', justifyContent: 'center', ...SHADOW,
   },
 
   sectionHead: {
-    fontSize: 12, fontWeight: '900', color: COLORS.muted, letterSpacing: 0.7,
+    fontSize: 12, fontWeight: '900', color: C.muted, letterSpacing: 0.7,
     paddingHorizontal: SPACING.screen, paddingTop: SPACING.screen, paddingBottom: SPACING.sm,
     textTransform: 'uppercase',
   },
 
   gridRow: { flexDirection: 'row', gap: GAP, paddingHorizontal: GAP, marginBottom: GAP },
-  tile: { width: TILE, height: TILE, borderRadius: 4, overflow: 'hidden', backgroundColor: COLORS.slate100 },
+  tile: { width: TILE, height: TILE, borderRadius: 4, overflow: 'hidden', backgroundColor: C.slate100 },
   tileImg: { width: '100%', height: '100%' },
   playBadge: {
     position: 'absolute', alignSelf: 'center', top: '38%',
@@ -193,12 +195,12 @@ const s = StyleSheet.create({
   listRow: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.lg,
     paddingHorizontal: SPACING.screen, paddingVertical: SPACING.md,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.line,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
   },
   listIcon: {
-    width: 40, height: 40, borderRadius: RADIUS.md, backgroundColor: '#EAF1FE',
+    width: 40, height: 40, borderRadius: RADIUS.md, backgroundColor: COLORS.tintBg,
     alignItems: 'center', justifyContent: 'center',
   },
-  listName: { fontSize: 14.5, fontWeight: '700', color: COLORS.ink },
-  listMeta: { fontSize: 12, color: COLORS.slate500, marginTop: 2 },
-});
+  listName: { fontSize: 14.5, fontWeight: '700', color: C.ink },
+  listMeta: { fontSize: 12, color: C.slate500, marginTop: 2 },
+}));

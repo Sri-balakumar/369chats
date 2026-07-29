@@ -5,6 +5,7 @@
 // open (mount = fresh scroll position). Hours column is on the left → "first hr, then min".
 import React, { useRef, useState, useEffect } from 'react';
 import { View, Text, Modal, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import { COLORS, themed } from '../theme';
 
 const ITEM_H = 44;
 const VISIBLE = 5;
@@ -115,24 +116,24 @@ export default function DurationTimePicker({ mode = 'duration', initial, title, 
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed((C) => ({
   backdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.55)', alignItems: 'center', justifyContent: 'center', padding: 26 },
-  sheet: { width: '100%', maxWidth: 360, backgroundColor: '#fff', borderRadius: 18, padding: 18 },
-  title: { fontSize: 16, fontWeight: '900', color: '#0F1F4D', textAlign: 'center', marginBottom: 10 },
+  sheet: { width: '100%', maxWidth: 360, backgroundColor: C.card, borderRadius: 18, padding: 18 },
+  title: { fontSize: 16, fontWeight: '900', color: C.navy, textAlign: 'center', marginBottom: 10 },
   wheels: { flexDirection: 'row', justifyContent: 'center', gap: 8 },
   wheel: { position: 'relative' },
   item: { height: ITEM_H, alignItems: 'center', justifyContent: 'center' },
-  itemTxt: { fontSize: 18, fontWeight: '700', color: '#9AA7C2' },
-  itemTxtSel: { fontSize: 20, fontWeight: '900', color: '#1E40AF' },
+  itemTxt: { fontSize: 18, fontWeight: '700', color: C.faint },
+  itemTxtSel: { fontSize: 20, fontWeight: '900', color: C.primary },
   centerBand: {
     position: 'absolute', left: 0, right: 0, top: PAD, height: ITEM_H,
-    borderTopWidth: 1.5, borderBottomWidth: 1.5, borderColor: '#C7DDF7',
+    borderTopWidth: 1.5, borderBottomWidth: 1.5, borderColor: C.line,
   },
-  infiniteBtn: { marginTop: 12, paddingVertical: 11, borderRadius: 10, backgroundColor: '#EAF2FF', borderWidth: 1, borderColor: '#C7DDF7', alignItems: 'center' },
-  infiniteTxt: { color: '#1E40AF', fontWeight: '800', fontSize: 13.5 },
+  infiniteBtn: { marginTop: 12, paddingVertical: 11, borderRadius: 10, backgroundColor: C.tintBg, borderWidth: 1, borderColor: C.line, alignItems: 'center' },
+  infiniteTxt: { color: C.primary, fontWeight: '800', fontSize: 13.5 },
   actions: { flexDirection: 'row', gap: 10, marginTop: 14 },
-  btnGhost: { flex: 1, paddingVertical: 13, borderRadius: 12, borderWidth: 1.5, borderColor: '#C7DDF7', alignItems: 'center' },
-  btnGhostTxt: { color: '#4B5B7A', fontWeight: '800', fontSize: 14.5 },
-  btnPrimary: { flex: 1, paddingVertical: 13, borderRadius: 12, backgroundColor: '#1E40AF', alignItems: 'center' },
-  btnPrimaryTxt: { color: '#fff', fontWeight: '900', fontSize: 14.5 },
-});
+  btnGhost: { flex: 1, paddingVertical: 13, borderRadius: 12, borderWidth: 1.5, borderColor: C.line, alignItems: 'center' },
+  btnGhostTxt: { color: C.muted, fontWeight: '800', fontSize: 14.5 },
+  btnPrimary: { flex: 1, paddingVertical: 13, borderRadius: 12, backgroundColor: C.primary, alignItems: 'center' },
+  btnPrimaryTxt: { color: C.onPrimary, fontWeight: '900', fontSize: 14.5 },
+}));

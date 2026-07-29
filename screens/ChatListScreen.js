@@ -6,18 +6,27 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 // (useRef is used for the list handle and the filter mirror.)
 import {
-  View, Text, Image, TouchableOpacity, StyleSheet, TextInput, FlatList, RefreshControl, Alert,
+  View, Text, Image, TouchableOpacity, StyleSheet, TextInput, FlatList, ScrollView,
+  RefreshControl, Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, SHADOW, RADIUS, SPACING, TOP } from '../theme';
-import { Screen, ChipRow, Loader, EmptyState, Avatar, PopupModal, MenuPopup, emptyWrap } from '../components/ui';
+import { COLORS, SHADOW, RADIUS, SPACING, TOP, themed } from '../theme';
+import {
+  Screen, ChipRow, Loader, EmptyState, Avatar, PopupModal, MenuPopup, ConfirmDialog, emptyWrap,
+} from '../components/ui';
+import { TABBAR_SPACE, TABBAR_HEIGHT, tabbarBottom } from '../components/chat/BottomTabs';
+import NowPlayingBar from '../components/chat/NowPlayingBar';
 import * as chat from '../services/chat';
-import { fetchUnreadCount } from '../services/notifications';
 import realtime from '../services/chatRealtime';
+import { draftFor } from '../services/drafts';
 import { createLogger } from '../api/logger';
 
 const log = createLogger('ChatList');
+
+// The + shares the bottom band with the tab pill, so its size is needed both for
+// the style block and to centre it against TABBAR_HEIGHT.
+const FAB_SIZE = 56;
 
 const FILTERS = [
   { key: 'all', label: 'All' },
@@ -58,6 +67,9 @@ function previewIcon(kind) {
 
 function Row({ conv, onPress, onLongPress }) {
   const icon = previewIcon(conv.lastKind);
+  // An unsent draft outranks the last message in the preview slot — it is the
+  // thing the user left unfinished.
+  const draft = draftFor(conv.id);
   return (
     <TouchableOpacity style={s.row} onPress={onPress} onLongPress={onLongPress} activeOpacity={0.75}>
       <Avatar name={conv.title} uri={conv.avatarUrl} size={52} online={conv.isGroup ? null : conv.online} />
@@ -67,9 +79,11 @@ function Row({ conv, onPress, onLongPress }) {
           <Text style={[s.time, conv.unread && s.timeUnread]}>{stamp(conv.lastAt)}</Text>
         </View>
         <View style={s.rowBottom}>
-          {!!icon && <Ionicons name={icon} size={14} color={COLORS.slate400} style={{ marginRight: 3 }} />}
+          {!draft && !!icon && <Ionicons name={icon} size={14} color={COLORS.slate400} style={{ marginRight: 3 }} />}
           <Text style={[s.preview, conv.unread && s.previewUnread]} numberOfLines={1}>
-            {conv.lastPreview || (conv.isGroup ? 'Group created' : 'Tap to start chatting')}
+            {draft
+              ? <Text><Text style={s.draftTag}>Draft: </Text>{draft}</Text>
+              : (conv.lastPreview || (conv.isGroup ? 'Group created' : 'Tap to start chatting'))}
           </Text>
           {conv.muted && <Ionicons name="notifications-off" size={13} color={COLORS.slate400} style={{ marginLeft: 5 }} />}
           {conv.pinned && <Ionicons name="pin" size={13} color={COLORS.slate400} style={{ marginLeft: 5 }} />}
@@ -88,18 +102,28 @@ function Row({ conv, onPress, onLongPress }) {
 
 export default function ChatListScreen({
   onOpenChat, onNewChat, onOpenSearch, onOpenStarred, onOpenSettings,
-  onOpenNotifications, onOpenAdmin, onLogout,
+  onOpenNotifications, onOpenAdmin, onOpenHit, onLogout,
 }) {
   // Edge-to-edge draws under the nav/gesture bar, so every bottom-anchored list
   // has to reserve that space itself or the last row sits behind the buttons.
   const insets = useSafeAreaInsets();
   const [rowMenu, setRowMenu] = useState(null);   // long-pressed conversation
   const [headerMenu, setHeaderMenu] = useState(false);
-  // Unread count for the header bell — the in-app notification feed, not chat
-  // unreads. Moved here when the Home dashboard (which used to own the bell) went.
-  const [unread, setUnread] = useState(0);
   const [canScrollDown, setCanScrollDown] = useState(false);
+  // Custom lists (chat.list) become extra filter chips alongside the built-ins.
+  const [lists, setLists] = useState([]);
+  const [listAsk, setListAsk] = useState(false);
+  const [listName, setListName] = useState('');
+  const [listPick, setListPick] = useState([]);     // conversations to seed a new list with
+  const [addToList, setAddToList] = useState(null); // conversation being filed into lists
+  const [listErr, setListErr] = useState(null);     // /chat/lists failed — shown under the chips
+  const [confirmList, setConfirmList] = useState(null);  // list awaiting delete confirmation
+  const [confirmLeave, setConfirmLeave] = useState(null); // chat awaiting exit/delete confirmation
+  const [confirmLogout, setConfirmLogout] = useState(false);
+  const [hits, setHits] = useState(null);        // message search results, null = not searching
+  const [searching, setSearching] = useState(false);
   const listRef = useRef(null);
+  const searchTimer = useRef(null);
   const [convs, setConvs] = useState([]);
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
@@ -132,16 +156,73 @@ export default function ChatListScreen({
     return () => { off(); };
   }, []);
 
-  // Refetched on every mount — returning from the feed should show it cleared.
-  const loadUnread = useCallback(async () => {
-    try { setUnread(await fetchUnreadCount() || 0); }
-    catch (e) { log.warn('unread count failed', e?.message); }
+  // A failed /chat/lists used to be swallowed into log.warn, which api/logger
+  // suppresses outside __DEV__ — so a broken session looked exactly like "you
+  // have no lists". Say so instead, without blocking the conversation list.
+  const loadLists = useCallback(async () => {
+    try { setLists(await chat.fetchLists()); setListErr(null); }
+    catch (e) { log.warn('lists failed', e?.message); setListErr(e?.message || 'Could not load your lists.'); }
   }, []);
-  useEffect(() => { loadUnread(); }, [loadUnread]);
+  useEffect(() => { loadLists(); }, [loadLists]);
+
+  // There is no rename route server-side — a list can only be created, toggled
+  // or deleted — so this is create-only and deletion lives on the chip long-press.
+  // Chats can be chosen while creating, which is what the web client does — the
+  // API takes conversation_ids up front, so there is no reason to make the user
+  // create an empty list and then file chats into it one at a time.
+  const createList = useCallback(async () => {
+    const name = listName.trim();
+    if (!name) return;
+    setListAsk(false);
+    setListName('');
+    const ids = listPick;
+    setListPick([]);
+    try { await chat.createList(name, '', ids); await loadLists(); }
+    catch (e) { Alert.alert('Failed', e?.message || 'Could not create the list.'); }
+  }, [listName, listPick, loadLists]);
+
+  // Toggle one conversation in/out of a list. Patch the single row from what the
+  // server hands back rather than reloading: loadLists() calls /chat/lists with no
+  // conversation_id, and the route only reports `has` when it is given one — so a
+  // reload would blank every tick in the modal that is still open.
+  const toggleInList = useCallback(async (listId, conversationId) => {
+    try {
+      const { has, count } = await chat.toggleList(listId, conversationId);
+      setLists((prev) => prev.map((l) => (l.id === listId ? { ...l, has, count } : l)));
+    } catch (e) {
+      Alert.alert('Failed', e?.message || 'Could not update the list.');
+    }
+  }, []);
+
+  // Which lists already contain this chat — /chat/lists reports `has` when it is
+  // given a conversation_id.
+  const openAddToList = useCallback(async (conv) => {
+    setRowMenu(null);
+    try {
+      const withHas = await chat.fetchLists(conv.id);
+      setLists(withHas);
+      setAddToList(conv);
+    } catch (e) {
+      Alert.alert('Failed', e?.message || 'Could not load your lists.');
+    }
+  }, []);
+
+  const removeList = useCallback((l) => setConfirmList(l), []);
+
+  const doRemoveList = useCallback(async () => {
+    const l = confirmList;
+    setConfirmList(null);
+    if (!l) return;
+    try {
+      await chat.deleteList(l.id);
+      if (filter === String(l.id)) setFilter('all');
+      await loadLists();
+    } catch (e) { Alert.alert('Failed', e?.message || 'Please try again.'); }
+  }, [confirmList, filter, loadLists]);
 
   const onRefresh = useCallback(async () => {
-    setRefreshing(true); await Promise.all([load(), loadUnread()]); setRefreshing(false);
-  }, [load, loadUnread]);
+    setRefreshing(true); await load(); setRefreshing(false);
+  }, [load]);
 
   // Row actions. Each flips local state first so the list responds instantly,
   // then reconciles from the server — none of these are broadcast on the bus, so
@@ -155,43 +236,38 @@ export default function ChatListScreen({
       if (kind === 'mute') await chat.muteConversation(c.id, !c.muted, 0);
       if (kind === 'unread') await chat.markUnread(c.id);
       if (kind === 'read') await chat.markRead(c.id);
-      if (kind === 'delete') {
-        await new Promise((resolve, reject) => {
-          Alert.alert(
-            c.isGroup ? 'Exit group?' : 'Delete chat?',
-            c.isGroup
-              ? 'You will stop receiving messages from this group.'
-              : 'It disappears from your list, and returns if they message you again.',
-            [
-              { text: 'Cancel', style: 'cancel', onPress: () => reject(new Error('cancelled')) },
-              { text: c.isGroup ? 'Exit' : 'Delete', style: 'destructive', onPress: resolve },
-            ],
-          );
-        });
-        await chat.leaveChat(c.id);
-      }
+      // Hand off to the confirm layer instead of blocking on a promise inside a
+      // native Alert — the row menu is a Modal, so a second Modal would lose the
+      // race, and an Alert renders white on dark.
+      if (kind === 'delete') { setConfirmLeave(c); return; }
       await load();
     } catch (e) {
-      if (e?.message === 'cancelled') return;
       Alert.alert('Failed', e?.message || 'Please try again.');
       load();
     }
   }, [load]);
-
-  // Logging out drops the session, so it always confirms — a mis-tap in a menu
-  // shouldn't end the session.
-  const confirmLogout = useCallback(() => {
-    Alert.alert('Log out?', "You'll need to sign in again with your username and password.", [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Log out', style: 'destructive', onPress: () => onLogout?.() },
-    ]);
-  }, [onLogout]);
 
   const markAll = useCallback(async () => {
     setHeaderMenu(false);
     try { await chat.markAllRead(); await load(); }
     catch (e) { Alert.alert('Failed', e?.message || 'Please try again.'); }
   }, [load]);
+
+  // Typing searches MESSAGES across every chat, not just the visible rows.
+  // /chat/search_all needs 2+ characters and is a plain ILIKE, so it is debounced
+  // and the chat-title filter below still runs for 1-character queries.
+  useEffect(() => {
+    const q = query.trim();
+    clearTimeout(searchTimer.current);
+    if (q.length < 2) { setHits(null); setSearching(false); return undefined; }
+    setSearching(true);
+    searchTimer.current = setTimeout(async () => {
+      try { setHits(await chat.searchAll(q)); }
+      catch (e) { log.warn('search failed', e?.message); setHits([]); }
+      finally { setSearching(false); }
+    }, 350);
+    return () => clearTimeout(searchTimer.current);
+  }, [query]);
 
   // Local filter on top of the server list. Titles already have nicknames applied
   // server-side, so matching on title is the same thing the user sees.
@@ -207,14 +283,9 @@ export default function ChatListScreen({
       <View style={[s.header, { paddingTop: TOP }]}>
         <Image source={require('../assets/logo369.png')} style={s.logo} resizeMode="contain" />
         <Text style={s.headerTitle}>Chats</Text>
-        <TouchableOpacity onPress={onOpenNotifications} hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }} style={s.iconBtn}>
-          <Ionicons name="notifications-outline" size={21} color={COLORS.navy} />
-          {unread > 0 && (
-            <View style={s.bellBadge}>
-              <Text style={s.bellBadgeTxt}>{unread > 99 ? '99+' : unread}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
+        {/* The notification bell was removed: chat unreads already show on the
+            rows, the tab badge and the ⋮, so a second unread language in the
+            same header was noise. The feed is still reachable from Settings. */}
         <TouchableOpacity onPress={onNewChat} hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }} style={s.iconBtn}>
           <Ionicons name="create-outline" size={22} color={COLORS.primary} />
         </TouchableOpacity>
@@ -237,7 +308,43 @@ export default function ChatListScreen({
         )}
       </View>
 
-      <ChipRow chips={FILTERS} value={filter} onChange={setFilter} />
+      {/* Filters are irrelevant while searching messages. Custom lists appear as
+          extra chips after the built-ins, with a + to add one. Long-press a list
+          chip to delete it — there is no rename route server-side. */}
+      {!hits && (
+        <View style={s.filterRow}>
+          <View style={{ flex: 1 }}>
+            <ChipRow
+              chips={[
+                ...FILTERS,
+                ...lists.map((l) => ({
+                  key: String(l.id),
+                  label: `${l.emoji ? `${l.emoji} ` : ''}${l.name}`,
+                  count: l.count,
+                })),
+              ]}
+              value={filter}
+              onChange={setFilter}
+              onLongPress={(key) => {
+                const l = lists.find((x) => String(x.id) === String(key));
+                if (l) removeList(l);
+              }}
+            />
+          </View>
+          <TouchableOpacity style={s.addList} onPress={() => setListAsk(true)} activeOpacity={0.8}>
+            <Ionicons name="add" size={18} color={COLORS.primary} />
+          </TouchableOpacity>
+        </View>
+      )}
+      {/* Voice note still playing after leaving the thread. */}
+      <NowPlayingBar onOpen={(cid) => cid && onOpenChat?.({ id: cid, title: 'Chat' })} />
+
+      {!hits && !!listErr && (
+        <TouchableOpacity style={s.listErr} onPress={loadLists} activeOpacity={0.7}>
+          <Ionicons name="alert-circle-outline" size={14} color={COLORS.red} />
+          <Text style={s.listErrTxt} numberOfLines={1}>{listErr} Tap to retry.</Text>
+        </TouchableOpacity>
+      )}
 
       {loading ? (
         <Loader />
@@ -245,6 +352,49 @@ export default function ChatListScreen({
         <View style={emptyWrap}>
           <EmptyState icon="alert-circle-outline" tone="error" title={error} onRetry={onRefresh} />
         </View>
+      ) : hits ? (
+        // Message search across every chat. Matching chat NAMES stay on top, then
+        // the message hits — the same two-section shape the web client uses.
+        <FlatList
+          style={{ flex: 1 }}
+          data={hits}
+          keyExtractor={(h) => `m${h.messageId}`}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={hits.length ? { paddingBottom: 96 + insets.bottom } : emptyWrap}
+          ListHeaderComponent={
+            shown.length ? (
+              <>
+                <Text style={s.searchHead}>Chats</Text>
+                {shown.slice(0, 4).map((c) => (
+                  <Row key={c.id} conv={c} onPress={() => onOpenChat(c)} onLongPress={() => setRowMenu(c)} />
+                ))}
+                <Text style={s.searchHead}>Messages</Text>
+              </>
+            ) : null
+          }
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={s.hitRow}
+              activeOpacity={0.75}
+              onPress={() => onOpenHit?.(item.conversationId, item.messageId, item.conversationTitle)}
+            >
+              <View style={s.hitTop}>
+                <Text style={s.hitChat} numberOfLines={1}>{item.conversationTitle}</Text>
+                <Text style={s.hitWhen}>{stamp(item.created)}</Text>
+              </View>
+              <Text style={s.hitSnippet} numberOfLines={2}>
+                {item.author ? `${item.author}: ` : ''}{item.snippet}
+              </Text>
+            </TouchableOpacity>
+          )}
+          ListEmptyComponent={
+            <EmptyState
+              icon="search-outline"
+              title={searching ? 'Searching…' : 'No messages found'}
+              sub={searching ? undefined : 'Try different words.'}
+            />
+          }
+        />
       ) : (
         <FlatList
           style={{ flex: 1 }}
@@ -254,8 +404,8 @@ export default function ChatListScreen({
             <Row conv={item} onPress={() => onOpenChat(item)} onLongPress={() => setRowMenu(item)} />
           )}
           ref={listRef}
-          // Room for the FAB so the last row is never trapped under it.
-          contentContainerStyle={shown.length ? { paddingBottom: 96 + insets.bottom } : emptyWrap}
+          // Room for the FAB AND the floating tab bar, which overlays content.
+          contentContainerStyle={shown.length ? { paddingBottom: 96 + TABBAR_SPACE + insets.bottom } : emptyWrap}
           onScroll={(e) => {
             const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
             // Show the arrow only when there is genuinely more list below.
@@ -263,7 +413,7 @@ export default function ChatListScreen({
             setCanScrollDown(remaining > 120);
           }}
           scrollEventThrottle={64}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} colors={[COLORS.primary]} progressBackgroundColor={COLORS.card} />}
           ListEmptyComponent={
             <EmptyState
               icon="chatbubbles-outline"
@@ -274,10 +424,11 @@ export default function ChatListScreen({
         />
       )}
 
-      {/* More list below than fits — same affordance as the web client. */}
+      {/* More list below than fits — same affordance as the web client. Sits
+          above the whole bottom band, clear of both the pill and the +. */}
       {canScrollDown && (
         <TouchableOpacity
-          style={[s.scrollDown, { bottom: 92 + insets.bottom }]}
+          style={[s.scrollDown, { bottom: TABBAR_SPACE + 12 + insets.bottom }]}
           onPress={() => listRef.current?.scrollToEnd({ animated: true })}
           activeOpacity={0.85}
         >
@@ -285,15 +436,100 @@ export default function ChatListScreen({
         </TouchableOpacity>
       )}
 
-      {/* New chat — WhatsApp's + button. Duplicates the header pencil on purpose:
-          it is the primary action and belongs within thumb reach. */}
+      {/* New chat. Shares the bottom band WITH the tab pill rather than floating
+          above it: the pill is centred, so the + takes the right end of the same
+          line and the row reads as one control strip. Centred against the pill's
+          height so the two line up however the pill changes. */}
       <TouchableOpacity
-        style={[s.fab, { bottom: 24 + insets.bottom }]}
+        style={[s.fab, { bottom: tabbarBottom(insets.bottom) + (TABBAR_HEIGHT - FAB_SIZE) / 2 }]}
         onPress={onNewChat}
         activeOpacity={0.9}
       >
-        <Ionicons name="add" size={28} color="#fff" />
+        <Ionicons name="add" size={28} color={COLORS.onPrimary} />
       </TouchableOpacity>
+
+      {/* New list — name AND the chats to put in it, in one step. */}
+      <PopupModal
+        visible={listAsk}
+        onClose={() => { setListAsk(false); setListName(''); setListPick([]); }}
+        title="New list"
+        subtitle="Group chats together so you can filter to them quickly."
+      >
+        <View style={{ paddingHorizontal: SPACING.xl, paddingTop: SPACING.md }}>
+          <TextInput
+            style={s.listInput}
+            value={listName}
+            onChangeText={setListName}
+            placeholder="List name"
+            placeholderTextColor={COLORS.faint}
+            autoFocus
+            returnKeyType="done"
+          />
+          <Text style={s.pickHead}>
+            Add chats{listPick.length ? ` · ${listPick.length} selected` : ''}
+          </Text>
+        </View>
+        <ScrollView style={{ maxHeight: 260 }}>
+          {convs.map((c) => {
+            const on = listPick.includes(c.id);
+            return (
+              <TouchableOpacity
+                key={c.id}
+                style={s.pickRow}
+                activeOpacity={0.75}
+                onPress={() => setListPick((p) => (on ? p.filter((x) => x !== c.id) : [...p, c.id]))}
+              >
+                <Avatar name={c.title} uri={c.avatarUrl} size={36} />
+                <Text style={s.pickName} numberOfLines={1}>{c.title}</Text>
+                <View style={[s.check, on && s.checkOn]}>
+                  {on && <Ionicons name="checkmark" size={14} color={COLORS.onPrimary} />}
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+          {!convs.length && <Text style={s.pickEmpty}>No chats yet.</Text>}
+        </ScrollView>
+        <View style={{ paddingHorizontal: SPACING.xl, paddingBottom: SPACING.md }}>
+          <TouchableOpacity
+            style={[s.listBtn, !listName.trim() && { backgroundColor: COLORS.slate400 }]}
+            disabled={!listName.trim()}
+            onPress={createList}
+          >
+            <Text style={s.listBtnTxt}>Create list</Text>
+          </TouchableOpacity>
+        </View>
+      </PopupModal>
+
+      {/* File one chat into any of your lists. */}
+      <PopupModal
+        visible={!!addToList}
+        onClose={() => setAddToList(null)}
+        title="Add to list"
+        subtitle={addToList?.title}
+      >
+        <ScrollView style={{ maxHeight: 300 }}>
+          {lists.map((l) => (
+            <TouchableOpacity
+              key={l.id}
+              style={s.pickRow}
+              activeOpacity={0.75}
+              onPress={() => toggleInList(l.id, addToList.id)}
+            >
+              <Text style={s.listEmoji}>{l.emoji || '📁'}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={s.pickName} numberOfLines={1}>{l.name}</Text>
+                <Text style={s.pickMeta}>{l.count} {l.count === 1 ? 'chat' : 'chats'}</Text>
+              </View>
+              <View style={[s.check, l.has && s.checkOn]}>
+                {l.has && <Ionicons name="checkmark" size={14} color={COLORS.onPrimary} />}
+              </View>
+            </TouchableOpacity>
+          ))}
+          {!lists.length && (
+            <Text style={s.pickEmpty}>No lists yet — create one with the + beside the filters.</Text>
+          )}
+        </ScrollView>
+      </PopupModal>
 
       {/* Long-press a row — centred dialog, not a bottom sheet. */}
       <PopupModal visible={!!rowMenu} onClose={() => setRowMenu(null)} title={rowMenu?.title}>
@@ -325,6 +561,11 @@ export default function ChatListScreen({
               onPress={() => rowAction('archive', rowMenu)}
             />
             <ListMenuItem
+              icon="albums-outline"
+              label="Add to list"
+              onPress={() => openAddToList(rowMenu)}
+            />
+            <ListMenuItem
               icon="exit-outline"
               label={rowMenu.isGroup ? 'Exit group' : 'Delete chat'}
               tone="danger"
@@ -344,10 +585,59 @@ export default function ChatListScreen({
         items={[
           { key: 'newgroup', icon: 'people-outline', label: 'New group', onPress: () => onNewChat?.({ group: true }) },
           { key: 'starred', icon: 'star-outline', label: 'Starred messages', onPress: () => onOpenStarred?.() },
+          // The bell came out of the header, so the feed lives here now — without
+          // this entry the Notifications screen would have no way in at all.
+          { key: 'notifs', icon: 'notifications-outline', label: 'Notifications', onPress: () => onOpenNotifications?.() },
           { key: 'markall', icon: 'checkmark-done-outline', label: 'Mark all as read', onPress: markAll },
           { key: 'settings', icon: 'settings-outline', label: 'Settings', onPress: () => onOpenSettings?.() },
-          { key: 'logout', icon: 'log-out-outline', label: 'Log out', tone: 'danger', onPress: confirmLogout },
+          // Also in Settings → Account; both entry points are intentional.
+          { key: 'logout', icon: 'log-out-outline', label: 'Log out', tone: 'danger', onPress: () => setConfirmLogout(true) },
         ]}
+      />
+
+      {/* In-tree confirm layers, last so they paint above everything. */}
+      <ConfirmDialog
+        visible={!!confirmList}
+        icon="albums-outline"
+        title={confirmList ? `Delete “${confirmList.name}”?` : 'Delete list?'}
+        message="The list is removed. The chats in it are not affected."
+        actions={[{ key: 'del', label: 'Delete list', tone: 'danger', onPress: doRemoveList }]}
+        onCancel={() => setConfirmList(null)}
+      />
+
+      <ConfirmDialog
+        visible={!!confirmLeave}
+        icon={confirmLeave?.isGroup ? 'exit-outline' : 'trash-outline'}
+        title={confirmLeave?.isGroup ? 'Exit group?' : 'Delete chat?'}
+        message={confirmLeave?.isGroup
+          ? 'You will stop receiving messages from this group.'
+          : 'It disappears from your list, and returns if they message you again.'}
+        actions={[{
+          key: 'go',
+          label: confirmLeave?.isGroup ? 'Exit group' : 'Delete chat',
+          tone: 'danger',
+          onPress: async () => {
+            const c = confirmLeave;
+            setConfirmLeave(null);
+            try { await chat.leaveChat(c.id); await load(); }
+            catch (e) { Alert.alert('Failed', e?.message || 'Please try again.'); load(); }
+          },
+        }]}
+        onCancel={() => setConfirmLeave(null)}
+      />
+
+      <ConfirmDialog
+        visible={confirmLogout}
+        icon="log-out-outline"
+        title="Log out?"
+        message="You'll need to sign in again with your username and password."
+        actions={[{
+          key: 'out',
+          label: 'Log out',
+          tone: 'danger',
+          onPress: () => { setConfirmLogout(false); onLogout?.(); },
+        }]}
+        onCancel={() => setConfirmLogout(false)}
       />
     </Screen>
   );
@@ -362,71 +652,120 @@ function ListMenuItem({ icon, label, onPress, tone }) {
   );
 }
 
-const s = StyleSheet.create({
+const s = themed((C) => ({
   header: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.xs,
     paddingHorizontal: SPACING.lg, paddingBottom: SPACING.md,
   },
   // Left-aligned, not centred: with three actions on the right the title reads
   // as a brand line rather than a page title.
-  headerTitle: { flex: 1, fontSize: 20, fontWeight: '900', color: COLORS.navy, marginLeft: SPACING.md },
+  headerTitle: { flex: 1, fontSize: 20, fontWeight: '900', color: C.navy, marginLeft: SPACING.md },
   logo: { width: 34, height: 34 },
   iconBtn: {
-    width: 40, height: 40, borderRadius: RADIUS.lg, backgroundColor: '#fff',
+    width: 40, height: 40, borderRadius: RADIUS.lg, backgroundColor: COLORS.card,
     alignItems: 'center', justifyContent: 'center', ...SHADOW,
   },
-  bellBadge: {
-    position: 'absolute', top: 4, right: 4, minWidth: 16, height: 16, borderRadius: 8,
-    backgroundColor: COLORS.red, alignItems: 'center', justifyContent: 'center',
-    paddingHorizontal: 3, borderWidth: 1.5, borderColor: '#fff',
-  },
-  bellBadgeTxt: { color: '#fff', fontSize: 9, fontWeight: '900' },
-
   searchWrap: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
     marginHorizontal: SPACING.screen, marginBottom: SPACING.md,
-    backgroundColor: '#fff', borderRadius: RADIUS.pill, borderWidth: 1, borderColor: COLORS.line,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.pill, borderWidth: 1, borderColor: C.line,
     paddingHorizontal: SPACING.lg, height: 42,
   },
-  search: { flex: 1, fontSize: 14.5, color: COLORS.ink, paddingVertical: 0 },
+  search: { flex: 1, fontSize: 14.5, color: C.ink, paddingVertical: 0 },
 
   row: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.lg,
     paddingHorizontal: SPACING.screen, paddingVertical: SPACING.md,
   },
-  rowBody: { flex: 1, borderBottomWidth: 1, borderBottomColor: COLORS.slate100, paddingBottom: SPACING.md },
+  rowBody: { flex: 1, borderBottomWidth: 1, borderBottomColor: C.slate100, paddingBottom: SPACING.md },
   rowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  title: { flex: 1, fontSize: 15.5, fontWeight: '800', color: COLORS.slate900, marginRight: SPACING.sm },
-  time: { fontSize: 11.5, color: COLORS.slate400, fontWeight: '600' },
-  timeUnread: { color: COLORS.green, fontWeight: '800' },
+  title: { flex: 1, fontSize: 15.5, fontWeight: '800', color: C.slate900, marginRight: SPACING.sm },
+  time: { fontSize: 11.5, color: C.slate400, fontWeight: '600' },
+  timeUnread: { color: C.accent, fontWeight: '800' },
   rowBottom: { flexDirection: 'row', alignItems: 'center', marginTop: 3 },
-  preview: { flex: 1, fontSize: 13.5, color: COLORS.slate500 },
-  previewUnread: { color: COLORS.slate700, fontWeight: '700' },
+  preview: { flex: 1, fontSize: 13.5, color: C.slate500 },
+  previewUnread: { color: C.slate700, fontWeight: '700' },
 
   badge: {
-    minWidth: 20, height: 20, borderRadius: 10, backgroundColor: COLORS.green,
+    minWidth: 20, height: 20, borderRadius: 10, backgroundColor: C.accent,
     alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5, marginLeft: SPACING.sm,
   },
-  badgeTxt: { color: '#fff', fontSize: 11, fontWeight: '800' },
-  dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.green, marginLeft: SPACING.sm },
+  badgeTxt: { color: COLORS.onPrimary, fontSize: 11, fontWeight: '800' },
+  dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: C.accent, marginLeft: SPACING.sm },
 
   menuItem: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.screen,
     paddingVertical: SPACING.screen, paddingHorizontal: SPACING.xs,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.line,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
   },
-  menuTxt: { fontSize: 15.5, fontWeight: '700', color: COLORS.ink },
+  menuTxt: { fontSize: 15.5, fontWeight: '700', color: C.ink },
+
+  filterRow: { flexDirection: 'row', alignItems: 'center' },
+  draftTag: { color: C.red, fontWeight: '700' },
+  listErr: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.xs,
+    paddingHorizontal: SPACING.screen, paddingBottom: SPACING.sm,
+  },
+  listErrTxt: { flex: 1, fontSize: 12.5, fontWeight: '600', color: C.red },
+  addList: {
+    width: 32, height: 32, borderRadius: 16, backgroundColor: COLORS.tintBg,
+    alignItems: 'center', justifyContent: 'center',
+    marginRight: SPACING.screen, marginBottom: SPACING.sm,
+  },
+  listInput: {
+    backgroundColor: C.slate50, borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: C.line,
+    paddingHorizontal: SPACING.screen, height: 46, fontSize: 15, color: C.ink,
+  },
+  listBtn: {
+    height: 48, borderRadius: RADIUS.lg, backgroundColor: C.primary,
+    alignItems: 'center', justifyContent: 'center', marginTop: SPACING.screen,
+  },
+  listBtnTxt: { color: COLORS.onPrimary, fontSize: 15.5, fontWeight: '800' },
+
+  pickHead: {
+    fontSize: 12, fontWeight: '900', color: C.muted, letterSpacing: 0.7,
+    marginTop: SPACING.screen, marginBottom: SPACING.xs, textTransform: 'uppercase',
+  },
+  pickRow: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.lg,
+    paddingHorizontal: SPACING.xl, paddingVertical: SPACING.md,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
+  },
+  pickName: { flex: 1, fontSize: 14.5, fontWeight: '700', color: C.ink },
+  pickMeta: { fontSize: 11.5, color: C.slate500, marginTop: 1 },
+  pickEmpty: { fontSize: 13.5, color: C.slate500, padding: SPACING.xl, textAlign: 'center' },
+  listEmoji: { fontSize: 22, width: 36, textAlign: 'center' },
+  check: {
+    width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: C.line,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  checkOn: { backgroundColor: C.primary, borderColor: C.primary },
+
+  searchHead: {
+    fontSize: 12, fontWeight: '900', color: C.muted, letterSpacing: 0.7,
+    paddingHorizontal: SPACING.screen, paddingTop: SPACING.screen,
+    paddingBottom: SPACING.xs, textTransform: 'uppercase',
+  },
+  hitRow: {
+    paddingHorizontal: SPACING.screen, paddingVertical: SPACING.md,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
+  },
+  hitTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  hitChat: { flex: 1, fontSize: 14, fontWeight: '800', color: C.navy },
+  hitWhen: { fontSize: 11.5, color: C.slate400 },
+  hitSnippet: { fontSize: 13.5, color: C.slate500, marginTop: 3 },
 
   fab: {
     position: 'absolute', right: SPACING.screen,
-    width: 56, height: 56, borderRadius: 28, backgroundColor: COLORS.primary,
+    width: FAB_SIZE, height: FAB_SIZE, borderRadius: FAB_SIZE / 2, backgroundColor: C.primary,
     alignItems: 'center', justifyContent: 'center',
-    shadowColor: COLORS.primary, shadowOpacity: 0.35, shadowRadius: 10,
+    shadowColor: C.primary, shadowOpacity: 0.35, shadowRadius: 10,
     shadowOffset: { width: 0, height: 5 }, elevation: 6,
   },
   scrollDown: {
     position: 'absolute', right: SPACING.screen + 8,
-    width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff',
+    width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.card,
     alignItems: 'center', justifyContent: 'center', ...SHADOW,
   },
-});
+}));

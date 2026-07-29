@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, SHADOW, RADIUS, SPACING, TOP } from '../theme';
+import { COLORS, SHADOW, RADIUS, SPACING, TOP, themed } from '../theme';
 import { Screen, Loader, EmptyState, emptyWrap } from '../components/ui';
 import MediaViewer from '../components/chat/MediaViewer';
 import * as chat from '../services/chat';
@@ -72,6 +72,7 @@ export default function StarredScreen({ onBack, onOpenChat }) {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }}
+              tintColor={COLORS.primary} colors={[COLORS.primary]} progressBackgroundColor={COLORS.card}
             />
           }
           renderItem={({ item }) => (
@@ -111,25 +112,25 @@ export default function StarredScreen({ onBack, onOpenChat }) {
   );
 }
 
-const s = StyleSheet.create({
+const s = themed((C) => ({
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingBottom: SPACING.md,
   },
-  headerTitle: { flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '900', color: COLORS.navy },
+  headerTitle: { flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '900', color: C.navy },
   iconBtn: {
-    width: 40, height: 40, borderRadius: RADIUS.lg, backgroundColor: '#fff',
+    width: 40, height: 40, borderRadius: RADIUS.lg, backgroundColor: COLORS.card,
     alignItems: 'center', justifyContent: 'center', ...SHADOW,
   },
 
   row: {
-    backgroundColor: '#fff', marginHorizontal: SPACING.screen, marginTop: SPACING.md,
-    borderRadius: RADIUS.xl, borderWidth: 1, borderColor: COLORS.line,
+    backgroundColor: COLORS.card, marginHorizontal: SPACING.screen, marginTop: SPACING.md,
+    borderRadius: RADIUS.xl, borderWidth: 1, borderColor: C.line,
     padding: SPACING.screen, ...SHADOW,
   },
   rowTop: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs },
-  chatName: { flex: 1, fontSize: 12.5, fontWeight: '800', color: COLORS.primary },
-  when: { fontSize: 11.5, color: COLORS.slate400, marginRight: SPACING.sm },
-  author: { fontSize: 12.5, fontWeight: '700', color: COLORS.slate500, marginTop: SPACING.sm },
-  body: { fontSize: 14.5, color: COLORS.ink, marginTop: 2, lineHeight: 20 },
-});
+  chatName: { flex: 1, fontSize: 12.5, fontWeight: '800', color: C.primary },
+  when: { fontSize: 11.5, color: C.slate400, marginRight: SPACING.sm },
+  author: { fontSize: 12.5, fontWeight: '700', color: C.slate500, marginTop: SPACING.sm },
+  body: { fontSize: 14.5, color: C.ink, marginTop: 2, lineHeight: 20 },
+}));

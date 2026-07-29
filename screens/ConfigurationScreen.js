@@ -7,13 +7,14 @@
 // Admin-only (opened from a Home Quick Action tile).
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Switch,
+  View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet,
   ActivityIndicator, Modal, FlatList, StatusBar as RNStatusBar,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { COLORS, SHADOW } from '../theme';
+import { COLORS, SHADOW, themed } from '../theme';
 import GradientBackground from '../components/GradientBackground';
+import { Switch } from '../components/ui';
 import { createLogger } from '../api/logger';
 import {
   fetchConfig, setAway, setUrgentNudge, setUserCountry, setMultitask, setDevWa,
@@ -257,7 +258,7 @@ export default function ConfigurationScreen({ onBack }) {
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
 
           {/* 2. Timers & Away */}
-          <Card color="#0ea5e9" iconLib="mc" icon="clock-outline" title="Timers & Away">
+          <Card color={COLORS.cyan} iconLib="mc" icon="clock-outline" title="Timers & Away">
             <Text style={s.label}>Away after (minutes)</Text>
             <View style={s.inlineRow}>
               <TextInput
@@ -326,7 +327,7 @@ export default function ConfigurationScreen({ onBack }) {
           </Card>
 
           {/* 3. Daily Task Report & Retention */}
-          <Card color="#f59e0b" iconLib="mc" icon="file-document-outline" title="Daily Task Report & Retention">
+          <Card color={COLORS.amber} iconLib="mc" icon="file-document-outline" title="Daily Task Report & Retention">
             <View style={s.switchRow}>
               <Text style={[s.label, { marginBottom: 0, flex: 1 }]}>Send daily employee task report (PDF)</Text>
               <Switch
@@ -420,7 +421,7 @@ export default function ConfigurationScreen({ onBack }) {
               admins in the app instead, repeating until read. */}
 
           {/* 4. Developers */}
-          <Card color="#6366f1" iconLib="mc" icon="account-group" title="Developers — Multi-task & WhatsApp">
+          <Card color={COLORS.violet} iconLib="mc" icon="account-group" title="Developers — Multi-task & WhatsApp">
             <Text style={s.hint}>Multi-task ON lets a developer run more than one task at once (default OFF).
               The WhatsApp number identifies them in Urgent / auto-away messages.</Text>
             {developers.length === 0 ? (
@@ -522,54 +523,54 @@ export default function ConfigurationScreen({ onBack }) {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#EAF2FF' }, // solid fallback under the gradient (no black)
+const s = themed((C) => ({
+  root: { flex: 1, backgroundColor: COLORS.shell }, // solid fallback under the gradient (no black)
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 12, paddingBottom: 12,
   },
-  iconBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', ...SHADOW },
-  hTitle: { flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '800', color: COLORS.navy },
+  iconBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: COLORS.card, alignItems: 'center', justifyContent: 'center', ...SHADOW },
+  hTitle: { flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '800', color: C.navy },
 
-  mockBar: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: COLORS.amberBg, paddingVertical: 7, paddingHorizontal: 14 },
-  mockTxt: { color: COLORS.amber, fontSize: 11.5, flex: 1 },
+  mockBar: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.amberBg, paddingVertical: 7, paddingHorizontal: 14 },
+  mockTxt: { color: C.amber, fontSize: 11.5, flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
-  card: { backgroundColor: '#fff', borderRadius: 14, marginBottom: 16, borderLeftWidth: 4, overflow: 'hidden', ...SHADOW },
-  cardHead: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: COLORS.line },
-  cardTitle: { fontSize: 14.5, fontWeight: '800', color: COLORS.navy },
+  card: { backgroundColor: COLORS.card, borderRadius: 14, marginBottom: 16, borderLeftWidth: 4, overflow: 'hidden', ...SHADOW },
+  cardHead: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.line },
+  cardTitle: { fontSize: 14.5, fontWeight: '800', color: C.navy },
   cardBody: { padding: 14 },
 
-  label: { fontSize: 13, fontWeight: '700', color: COLORS.ink, marginBottom: 6 },
-  hint: { fontSize: 12, color: COLORS.muted, marginTop: 8, lineHeight: 17 },
+  label: { fontSize: 13, fontWeight: '700', color: C.ink, marginBottom: 6 },
+  hint: { fontSize: 12, color: C.muted, marginTop: 8, lineHeight: 17 },
 
-  select: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1.5, borderColor: COLORS.line, borderRadius: 10, paddingHorizontal: 12, height: 46, backgroundColor: '#fff' },
-  selectTxt: { fontSize: 14.5, color: COLORS.ink, fontWeight: '600' },
+  select: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1.5, borderColor: C.line, borderRadius: 10, paddingHorizontal: 12, height: 46, backgroundColor: COLORS.card },
+  selectTxt: { fontSize: 14.5, color: C.ink, fontWeight: '600' },
   row2: { flexDirection: 'row', gap: 12, marginTop: 12, alignItems: 'flex-end' },
-  readBox: { borderWidth: 1.5, borderColor: COLORS.line, borderRadius: 10, height: 46, justifyContent: 'center', paddingHorizontal: 12, backgroundColor: '#F7F9FC' },
-  readTxt: { fontSize: 15, fontWeight: '700', color: COLORS.navy },
+  readBox: { borderWidth: 1.5, borderColor: C.line, borderRadius: 10, height: 46, justifyContent: 'center', paddingHorizontal: 12, backgroundColor: COLORS.bg },
+  readTxt: { fontSize: 15, fontWeight: '700', color: C.navy },
 
   inlineRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  divider: { height: 1, backgroundColor: COLORS.line, marginVertical: 16 },
-  input: { borderWidth: 1.5, borderColor: COLORS.line, borderRadius: 10, height: 46, paddingHorizontal: 12, fontSize: 15, color: COLORS.ink, backgroundColor: '#fff' },
-  unit: { fontSize: 14, color: COLORS.muted, fontWeight: '600' },
-  savedTick: { color: COLORS.green, fontSize: 18, fontWeight: '900', marginLeft: 6 },
+  divider: { height: 1, backgroundColor: C.line, marginVertical: 16 },
+  input: { borderWidth: 1.5, borderColor: C.line, borderRadius: 10, height: 46, paddingHorizontal: 12, fontSize: 15, color: C.ink, backgroundColor: COLORS.card },
+  unit: { fontSize: 14, color: C.muted, fontWeight: '600' },
+  savedTick: { color: C.green, fontSize: 18, fontWeight: '900', marginLeft: 6 },
 
-  dialBadge: { borderWidth: 1.5, borderColor: COLORS.line, borderRadius: 10, height: 46, justifyContent: 'center', paddingHorizontal: 12, backgroundColor: '#F7F9FC' },
-  dialBadgeTxt: { fontSize: 14.5, fontWeight: '800', color: COLORS.navy },
+  dialBadge: { borderWidth: 1.5, borderColor: C.line, borderRadius: 10, height: 46, justifyContent: 'center', paddingHorizontal: 12, backgroundColor: COLORS.bg },
+  dialBadgeTxt: { fontSize: 14.5, fontWeight: '800', color: C.navy },
 
-  devRow: { paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#F1F4F9' },
+  devRow: { paddingVertical: 12, borderTopWidth: 1, borderTopColor: COLORS.slate100 },
   devTop: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   devMulti: { alignItems: 'center' },
-  devName: { fontSize: 14, fontWeight: '700', color: COLORS.ink },
-  devLogin: { fontSize: 12, color: COLORS.muted },
-  devSmall: { fontSize: 10, color: COLORS.muted, marginBottom: 2 },
+  devName: { fontSize: 14, fontWeight: '700', color: C.ink },
+  devLogin: { fontSize: 12, color: C.muted },
+  devSmall: { fontSize: 10, color: C.muted, marginBottom: 2 },
   devWaRow: { flexDirection: 'row', alignItems: 'center' },
-  dialBadgeSm: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F1F4F9', borderWidth: 1, borderColor: COLORS.line, borderTopLeftRadius: 10, borderBottomLeftRadius: 10, paddingHorizontal: 10, height: 44, justifyContent: 'center' },
-  dialBadgeSmTxt: { fontSize: 14, fontWeight: '800', color: COLORS.navy },
-  devWaInput: { flex: 1, borderWidth: 1, borderColor: COLORS.line, borderLeftWidth: 0, borderTopRightRadius: 10, borderBottomRightRadius: 10, height: 44, paddingHorizontal: 12, fontSize: 15, color: COLORS.ink, backgroundColor: '#fff' },
-  devSavedInline: { fontSize: 16, color: COLORS.green, fontWeight: '900', marginLeft: 8 },
+  dialBadgeSm: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.slate100, borderWidth: 1, borderColor: C.line, borderTopLeftRadius: 10, borderBottomLeftRadius: 10, paddingHorizontal: 10, height: 44, justifyContent: 'center' },
+  dialBadgeSmTxt: { fontSize: 14, fontWeight: '800', color: C.navy },
+  devWaInput: { flex: 1, borderWidth: 1, borderColor: C.line, borderLeftWidth: 0, borderTopRightRadius: 10, borderBottomRightRadius: 10, height: 44, paddingHorizontal: 12, fontSize: 15, color: C.ink, backgroundColor: COLORS.card },
+  devSavedInline: { fontSize: 16, color: C.green, fontWeight: '900', marginLeft: 8 },
 
   // Centered dialog (not a bottom sheet) — matches the app's other popups.
   modalBackdrop: {
@@ -577,15 +578,15 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', padding: 26,
   },
   modalSheet: {
-    width: '100%', maxWidth: 360, backgroundColor: '#fff', borderRadius: 20,
+    width: '100%', maxWidth: 360, backgroundColor: COLORS.card, borderRadius: 20,
     maxHeight: '70%', paddingBottom: 12, overflow: 'hidden',
   },
-  modalHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: COLORS.line },
-  modalTitle: { fontSize: 17, fontWeight: '800', color: COLORS.navy },
-  modalClose: { fontSize: 18, color: COLORS.muted, fontWeight: '700' },
-  ccRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#F1F4F9' },
-  ccRowOn: { backgroundColor: '#F0F5FF' },
-  ccRowName: { flex: 1, fontSize: 15, color: COLORS.ink, fontWeight: '600' },
-  ccRowMeta: { fontSize: 13, color: COLORS.muted, marginRight: 8 },
-  ccRowTick: { color: COLORS.primary, fontSize: 15, fontWeight: '900' },
-});
+  modalHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: C.line },
+  modalTitle: { fontSize: 17, fontWeight: '800', color: C.navy },
+  modalClose: { fontSize: 18, color: C.muted, fontWeight: '700' },
+  ccRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: COLORS.slate100 },
+  ccRowOn: { backgroundColor: COLORS.slate50 },
+  ccRowName: { flex: 1, fontSize: 15, color: C.ink, fontWeight: '600' },
+  ccRowMeta: { fontSize: 13, color: C.muted, marginRight: 8 },
+  ccRowTick: { color: C.primary, fontSize: 15, fontWeight: '900' },
+}));

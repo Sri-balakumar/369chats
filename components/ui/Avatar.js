@@ -5,14 +5,15 @@
 // `uri` null/failed → initials. Deliberately handles onError: a broken avatar URL
 // (expired session, deleted attachment) must not leave a blank circle.
 import React, { useState, useEffect } from 'react';
-import { View, Text, Image, StyleSheet } from 'react-native';
-import { COLORS } from '../../theme';
+import { View, Text, StyleSheet } from 'react-native';
+import AuthImage from '../chat/AuthImage';
+import { COLORS, themed } from '../../theme';
 
 // Muted, readable-on-white fills. Kept deliberately few so a group of avatars
 // still looks like one palette.
 const FILLS = [
-  '#2563EB', '#7C3AED', '#DB2777', '#0891B2',
-  '#16A34A', '#D97706', '#4338CA', '#0369A1',
+  COLORS.link, COLORS.violet, COLORS.pink, COLORS.cyan,
+  COLORS.green, COLORS.amber, COLORS.violet, COLORS.cyan,
 ];
 
 export function colorForName(name) {
@@ -39,11 +40,10 @@ export default function Avatar({ name, uri, size = 46, style, online }) {
   return (
     <View style={[box, s.wrap, style]}>
       {showImage ? (
-        <Image
-          source={{ uri }}
-          style={[box, s.img]}
-          onError={() => setFailed(true)}
-        />
+        // /chats_369/avatar/* is auth='user'. RN's image pipeline keeps its own
+        // cookie store and cannot authenticate there, so this goes through
+        // AuthImage, which fetches with the shared session cookie and caches.
+        <AuthImage uri={uri} style={[box, s.img]} />
       ) : (
         <View style={[box, s.fallback, { backgroundColor: colorForName(name) }]}>
           <Text style={[s.initials, { fontSize: size * 0.38 }]} numberOfLines={1}>
@@ -66,10 +66,10 @@ export default function Avatar({ name, uri, size = 46, style, online }) {
   );
 }
 
-const s = StyleSheet.create({
+const s = themed((C) => ({
   wrap: { alignItems: 'center', justifyContent: 'center' },
-  img: { backgroundColor: COLORS.slate100 },
+  img: { backgroundColor: C.slate100 },
   fallback: { alignItems: 'center', justifyContent: 'center' },
-  initials: { color: '#fff', fontWeight: '800' },
-  dot: { position: 'absolute', right: 0, bottom: 0, borderWidth: 2, borderColor: '#fff' },
-});
+  initials: { color: COLORS.onPrimary, fontWeight: '800' },
+  dot: { position: 'absolute', right: 0, bottom: 0, borderWidth: 2, borderColor: COLORS.card },
+}));
