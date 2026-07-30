@@ -44,6 +44,20 @@ jest.mock('expo-audio', () => ({
   setAudioModeAsync: jest.fn(() => Promise.resolve()),
 }));
 
+// expo-video patches NativeVideoModule.VideoPlayer.prototype at import time, which
+// throws under jest-expo because the native module is absent — so this has to be
+// mocked to even require anything that pulls in MediaViewer.
+jest.mock('expo-video', () => ({
+  useVideoPlayer: () => ({
+    play: jest.fn(), pause: jest.fn(), replay: jest.fn(), seekBy: jest.fn(),
+    addListener: jest.fn(() => ({ remove: jest.fn() })),
+    playing: false, status: 'readyToPlay', duration: 0, currentTime: 0,
+    loop: false, muted: false,
+  }),
+  createVideoPlayer: jest.fn(),
+  VideoView: 'VideoView',
+}));
+
 jest.mock('expo-media-library', () => ({
   MediaType: { photo: 'photo', video: 'video' },
   SortBy: { creationTime: 'creationTime' },

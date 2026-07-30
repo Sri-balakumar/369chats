@@ -76,7 +76,7 @@ function Row({ conv, onPress, onLongPress }) {
       <View style={s.rowBody}>
         <View style={s.rowTop}>
           <Text style={s.title} numberOfLines={1}>{conv.title}</Text>
-          <Text style={[s.time, conv.unread && s.timeUnread]}>{stamp(conv.lastAt)}</Text>
+          <Text style={[s.time, conv.unread && s.timeUnread]} numberOfLines={1}>{stamp(conv.lastAt)}</Text>
         </View>
         <View style={s.rowBottom}>
           {!draft && !!icon && <Ionicons name={icon} size={14} color={COLORS.slate400} style={{ marginRight: 3 }} />}
@@ -680,7 +680,9 @@ const s = themed((C) => ({
   rowBody: { flex: 1, borderBottomWidth: 1, borderBottomColor: C.slate100, paddingBottom: SPACING.md },
   rowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   title: { flex: 1, fontSize: 15.5, fontWeight: '800', color: C.slate900, marginRight: SPACING.sm },
-  time: { fontSize: 11.5, color: C.slate400, fontWeight: '600' },
+  // The title beside this is flex:1, so without a floor the longest stamps
+  // ("Yesterday", "31/12/25") get squeezed and lose their last glyph.
+  time: { fontSize: 11.5, color: C.slate400, fontWeight: '600', flexShrink: 0, minWidth: 62, textAlign: 'right' },
   timeUnread: { color: C.accent, fontWeight: '800' },
   rowBottom: { flexDirection: 'row', alignItems: 'center', marginTop: 3 },
   preview: { flex: 1, fontSize: 13.5, color: C.slate500 },

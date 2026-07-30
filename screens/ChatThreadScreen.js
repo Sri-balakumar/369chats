@@ -704,12 +704,15 @@ export default function ChatThreadScreen({
       );
       return;
     }
-    if (m.kind === 'image') { setViewerMsg(m); return; }
+    // Video now plays in MediaViewer too, which also means a view-once video
+    // burns on close like a photo instead of at hand-off — see the viewer's
+    // onClose. Audio and documents still go to the OS.
+    if (m.kind === 'image' || m.kind === 'video') { setViewerMsg(m); return; }
     setOpening(m.id);
     try {
       await openAttachment(m);
-      // A view-once video is handed to the OS viewer, so there is no "closed"
-      // moment to hook — opening IS the consumption.
+      // Handed to the OS viewer, so there is no "closed" moment to hook —
+      // opening IS the consumption.
       if (m.viewOnce) await burnViewOnce(m);
     } catch (e) {
       Alert.alert('Could not open', e?.message || 'The file could not be opened.');

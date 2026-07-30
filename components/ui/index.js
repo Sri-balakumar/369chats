@@ -25,6 +25,7 @@ export { default as Switch } from './Switch';
 export { default as ConfirmDialog } from './ConfirmDialog';
 export { default as Accordion, animateNext } from './Accordion';
 export { default as Row } from './Row';
+export { default as InfoSection, InfoRow, InfoHero, MemberRow } from './InfoSection';
 export { default as Icon } from './Icon';
 export { default as Avatar, colorForName, initialsFor } from './Avatar';
 export { default as AnimatedTile, TILE_W, useTileAnimation } from './AnimatedTile';

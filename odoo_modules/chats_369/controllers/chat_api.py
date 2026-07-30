@@ -872,6 +872,11 @@ class Chat369API(http.Controller):
                     'id': m.id, 'kind': m.kind,
                     'url': '/chats_369/media/%s' % m.id,
                     'name': m.file_name or (m.kind or '').title(),
+                    # Without this the client can only pass */* to the OS, which
+                    # answers a wildcard with an "Open with" chooser instead of
+                    # going straight to the default player. _serialize_message
+                    # already ships it, so a thread tap has always worked.
+                    'mimetype': m.mimetype or '',
                     'created': self._dt(m.create_date),
                     'month_label': self._month_label(m.create_date),
                 })
@@ -1224,6 +1229,7 @@ class Chat369API(http.Controller):
                 items.append({
                     'id': m.id, 'kind': m.kind, 'url': '/chats_369/media/%s' % m.id,
                     'name': m.file_name or (m.kind or '').title(), 'duration': m.duration or 0,
+                    'mimetype': m.mimetype or '',   # see /chat/media_list
                     'chat': self._conv_title(m.conversation_id, me.id), 'author': m.author_id.name,
                     'created': self._dt(m.create_date), 'month_label': self._month_label(m.create_date)})
         return {'status': True, 'items': items}
@@ -1561,12 +1567,12 @@ class Chat369API(http.Controller):
         the composer before sending (WhatsApp-style)."""
         url = (params.get('url') or '').strip()
         if not url.lower().startswith(('http://', 'https://')):
-            return {'status': False, 'message': 'Calls are 1:1 only for now.'}
+            return {'status': False, 'message': 'Only http and https links can be previewed.'}
         if self._url_is_private(url):   # SSRF guard: never fetch internal/loopback hosts
-            return {'status': False, 'message': 'Not a member of this chat.'}
+            return {'status': False, 'message': 'That address cannot be previewed.'}
         data = self._scrape_og(url)
         if not (data['title'] or data['image']):
-            return {'status': False, 'message': 'Not a member of this chat.'}
+            return {'status': False, 'message': 'No preview available for this link.'}
         return {'status': True, 'url': url, 'title': data['title'],
                 'desc': data['desc'], 'image': data['image']}
 
@@ -1592,16 +1598,44 @@ class Chat369API(http.Controller):
                             'credential': P.get_param('chats_369.turn_cred') or ''})
         return servers
 
-    def _push_call(self, other, me, video):
+    def _push_call(self, other, me, conv, call_id, video):
+        """Best-effort incoming-call push.
+
+        This had drifted from _push_chat: it ignored the global push kill-switch
+        and the recipient's own notification preference, and its data payload was
+        just {'event': 'chat_call'} — no conversation, so a client tapping the
+        notification had nothing to open and fell through to the wrong screen.
+
+        Note this is an ordinary Expo alert, not a VoIP push: it cannot wake a
+        killed app into a ringing UI on either platform. It is a banner."""
         try:
+            try:
+                config = request.env['whatsapp.config'].sudo().get_config()
+                if not getattr(config, 'kpi_push_enabled', True):
+                    return
+            except Exception:
+                pass
+            if not getattr(other, 'chat_notif_messages', True):
+                return
             tokens = request.env['kpi.push.token'].sudo().tokens_for_users([other.id])
             if not tokens:
                 return
-            messages = [{'to': t, 'title': me.name, 'body': '📞 Incoming %s call' % ('video' if video else 'voice'),
-                         'data': {'event': 'chat_call'}, 'sound': 'default', 'channelId': 'default'} for t in tokens]
+            messages = [{
+                'to': t,
+                'title': me.name,
+                'body': '📞 Incoming %s call' % ('video' if video else 'voice'),
+                'data': {
+                    'event': 'chat_call',
+                    'chat_id': conv.id,
+                    'call_id': call_id,
+                    'video': bool(video),
+                },
+                'sound': 'default',
+                'channelId': 'default',
+            } for t in tokens]
             threading.Thread(target=self._push_send_async, args=(request.env.cr.dbname, messages), daemon=True).start()
-        except Exception:
-            pass
+        except Exception as exc:
+            _logger.warning("369chats call push failed: %s", exc)
 
     @http.route('/chat/call/ice', type='json', auth='user', methods=['POST'], csrf=False)
     def chat_call_ice(self, **params):
@@ -1632,7 +1666,7 @@ class Chat369API(http.Controller):
         self._bus_to_user(other, 'call_ring', {
             'call_id': call_id, 'conversation_id': conv.id, 'video': video,
             'from_id': me.id, 'name': me.name, 'avatar': self._avatar_url(me)})
-        self._push_call(other, me, video)
+        self._push_call(other, me, conv, call_id, video)
         return {'status': True, 'call_id': call_id, 'ice': self._ice_servers()}
 
     @http.route('/chat/call/accept', type='json', auth='user', methods=['POST'], csrf=False)
@@ -1641,6 +1675,12 @@ class Chat369API(http.Controller):
         conv, member = self._member_conv(params.get('conversation_id'))
         if not conv:
             return {'status': False, 'message': 'Not a member of this chat.'}
+        # Calls are 1:1 by design and /start enforces it, but the relay routes did
+        # not — so any member of any GROUP could push arbitrary signalling at
+        # another member. A call_id is required for the same reason: it is the only
+        # thing tying a relayed payload to a call the peer actually started.
+        if conv.is_group or not (params.get('call_id') or '').strip():
+            return {'status': False, 'message': 'Calls are 1:1 only for now.'}
         other = self._call_other(conv, me)
         if other:
             self._bus_to_user(other, 'call_accept', {'call_id': params.get('call_id'), 'conversation_id': conv.id, 'from_id': me.id})
@@ -1652,6 +1692,12 @@ class Chat369API(http.Controller):
         conv, member = self._member_conv(params.get('conversation_id'))
         if not conv:
             return {'status': False, 'message': 'Not a member of this chat.'}
+        # Calls are 1:1 by design and /start enforces it, but the relay routes did
+        # not — so any member of any GROUP could push arbitrary signalling at
+        # another member. A call_id is required for the same reason: it is the only
+        # thing tying a relayed payload to a call the peer actually started.
+        if conv.is_group or not (params.get('call_id') or '').strip():
+            return {'status': False, 'message': 'Calls are 1:1 only for now.'}
         other = self._call_other(conv, me)
         if other:
             self._bus_to_user(other, 'call_reject', {'call_id': params.get('call_id'), 'conversation_id': conv.id})
@@ -1663,6 +1709,12 @@ class Chat369API(http.Controller):
         conv, member = self._member_conv(params.get('conversation_id'))
         if not conv:
             return {'status': False, 'message': 'Not a member of this chat.'}
+        # Calls are 1:1 by design and /start enforces it, but the relay routes did
+        # not — so any member of any GROUP could push arbitrary signalling at
+        # another member. A call_id is required for the same reason: it is the only
+        # thing tying a relayed payload to a call the peer actually started.
+        if conv.is_group or not (params.get('call_id') or '').strip():
+            return {'status': False, 'message': 'Calls are 1:1 only for now.'}
         other = self._call_other(conv, me)
         if other:
             self._bus_to_user(other, 'call_signal', {
@@ -1676,6 +1728,12 @@ class Chat369API(http.Controller):
         conv, member = self._member_conv(params.get('conversation_id'))
         if not conv:
             return {'status': False, 'message': 'Not a member of this chat.'}
+        # Calls are 1:1 by design and /start enforces it, but the relay routes did
+        # not — so any member of any GROUP could push arbitrary signalling at
+        # another member. A call_id is required for the same reason: it is the only
+        # thing tying a relayed payload to a call the peer actually started.
+        if conv.is_group or not (params.get('call_id') or '').strip():
+            return {'status': False, 'message': 'Calls are 1:1 only for now.'}
         other = self._call_other(conv, me)
         if other:
             self._bus_to_user(other, 'call_end', {'call_id': params.get('call_id'), 'conversation_id': conv.id})
@@ -2142,7 +2200,11 @@ class Chat369API(http.Controller):
                 'nickname': (self._nick_for(me.id, other.id) if other else ''),
                 'avatar_url': (self._avatar_url(other) if other else False),
                 'blocked_by_me': bool(other and other.id in me.chat_blocked_user_ids.ids),
+                # The status line, so the drawer doesn't have to reuse a stale
+                # conversation row. _presence() owns the privacy + block rules.
+                'about': ((other.chat_about or '') if other else ''),
             })
+            info.update(self._presence(me, other))
         return {'status': True, 'info': info}
 
     @http.route('/chat/search_messages', type='json', auth='user', methods=['POST'], csrf=False)

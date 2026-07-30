@@ -1,0 +1,190 @@
+# 369Chats — session handoff
+
+Paste this whole file into a new session as context.
+
+## What this is
+
+`c:\Projects\369Chats` is an Expo 54 / RN 0.81 chat app talking to the Odoo 19 module
+`odoo_modules/chats_369`. **Two clients, one product**: the RN app and the module's OWL web client
+(`static/src/chat_app/`). The module is the design source of truth.
+
+**Standing rule: every fix lands in BOTH clients.** If a behaviour changes in one, check the other
+before calling it done. Where a rule is enforceable server-side (windows, permissions), put it in
+`chat_api.py` and have both clients read a server-computed flag rather than each re-deriving it.
+
+---
+
+## Read this before writing any code — hard-won gotchas
+
+1. **Cookie auth breaks every image.** `/chats_369/media/*` and `/chats_369/avatar/*` are
+   `auth='user'`. RN's `<Image>` and `expo-file-system`'s `downloadAsync` each keep their own cookie
+   store and fail *silently*. Go through `components/chat/AuthImage.js` or `utils/downloadAuthed.js`.
+
+2. **Nested `TouchableOpacity` swallows the outer gesture on Android.** Media is a plain `View`; the
+   bubble carries the tap. `LinkedText` threads `onLongPress` into every span.
+
+3. **Edge-to-edge is on.** `KeyboardAvoidingView` does nothing on Android. Use
+   `utils/useKeyboardHeight.js` and pad by `kb > 0 ? kb + insets.bottom : insets.bottom`.
+
+4. **Realtime is POLLING, not the bus.** `services/chatRealtime.js` polls every 3s (thread) / 6s
+   (list) and **stops when backgrounded**. It handles only `message` / `update` / `conversations`.
+   The Odoo bus needs the session cookie, which RN JS cannot read without a native cookie module.
+   *This is the single biggest blocker for calling — see below.*
+
+5. **Odoo returns `false`, never `null`.** Normalised in `services/chat.js`. Failures come back HTTP
+   200 as `{status: false, message: '...'}` — the key is `message`, not `error`.
+
+6. **Two RN `<Modal>`s cannot stack on Android.** Opening a `PopupModal` from inside a `MenuPopup`'s
+   `onPress` silently shows nothing. That is why `components/ui/ConfirmDialog.js` is an **in-tree
+   absolutely-positioned layer**, not a Modal. Use it for confirmations.
+
+7. **`StyleSheet.create` bakes colours at import.** Use `themed((C) => ({...}))` from `theme.js`
+   instead. `__tests__/themeStatic.test.js` fails the build if any `StyleSheet.create` block
+   references a theme token.
+
+8. **`react-native-svg` percentage sizing is unreliable on Android** without a viewBox — measure with
+   `onLayout` and pass pixels.
+
+9. **Server rules that look like client bugs:** empty 1:1 not listed until it has a message; max 3
+   pinned messages / 3 pinned chats; pins always carry an expiry (1/7/14/30 days); edit window 15 min
+   author-only; **delete-for-everyone 24h author-only**; mute suppresses push only; Google Meet is
+   admin-only by default; `/chat/search_all` needs 2+ chars.
+
+---
+
+## Deploying the Odoo module — verified working
+
+Odoo 19 runs as service `odoo-server-19.0`; DB `369application`. **The Claude Code shell is
+elevated**, so this can be run directly — no need to ask for an admin CMD.
+
+```powershell
+Stop-Service -Name 'odoo-server-19.0' -Force
+robocopy "C:\Projects\369Chats\odoo_modules\chats_369" "C:\Program Files\Odoo 19.0.20260119\server\odoo\addons\chats_369" /MIR /NFL /NDL /NJH /NJS
+& "C:\Program Files\Odoo 19.0.20260119\python\python.exe" "C:\Program Files\Odoo 19.0.20260119\server\odoo-bin" -c "C:\Program Files\Odoo 19.0.20260119\server\odoo.conf" -d 369application -u chats_369 --stop-after-init
+Start-Service -Name 'odoo-server-19.0'
+```
+robocopy 0–7 = success (3 = copied + extras removed); **8+ = stop**. odoo-bin exit 0 is the real
+signal. Then **Ctrl+Shift+R** — Odoo serves compiled bundles. Syntax-check first:
+`python -m py_compile` for controllers, `node --input-type=module --check` for `chat_app.js`.
+
+To check whether a deploy is even needed: `diff -rq <source> <addons copy>`.
+
+## Verification
+
+```bash
+npx jest                                     # 89 passing
+npx expo export --platform android --clear   # catches unresolved imports
+```
+Test files: `__tests__/theme.test.js`, `__tests__/themeStatic.test.js`,
+`components/ui/__tests__/{ui,modules}.test.js`, `screens/__tests__/screens.render.test.js`.
+**Add every new screen/component to `modules.test.js`.** The render test catches
+"Property 'X' doesn't exist" errors that `expo export` does not.
+
+---
+
+## State: what works now
+
+**Theming** — light only, **7 accent variants** (clean/ocean/emerald/sunset/violet/graphite/rose)
+taken from the web module's own CSS variables. Dark mode was **removed from both clients** by request.
+`theme.js` composes a palette per accent; `themed()` builds one StyleSheet per accent.
+
+**Shipped this session (app):** view-once (chip, consume-on-open, no share, "Opened"), message info
+panel, copy (real clipboard via `utils/clipboard.js`), reply privately, transcript export, per-chat
+drafts + "Draft:" row preview, optimistic send with rollback, upload %, in-chat search highlight +
+n/N stepper, audio scrub + 1×/1.5×/2× + clean stop, now-playing bar on the chat list, poll dialog
+centred, About presets, log out in ⋮, `+` on the tab-pill line, notification tap opens the chat,
+scheduled calls (create/cancel), un-favourite, attach-sheet photo permission fixed.
+
+**Shipped this session (module):** 8 missing `ir.rule` records (lists/nicknames/poll votes/polls/
+options/reactions/calls/schedules had **none**); media route now checks `left_at` +
+`hidden_for_user_ids` + `expire_at`; group-avatar membership check + private caching; `/chat/call/ice`
+requires membership before releasing TURN creds; `set_nickname` relationship check; `create_list`
+int() guard; 24h delete-for-everyone; call relay `is_group` + `call_id` validation; 8 bare
+`{status:false}` returns given messages; `_push_call` payload now carries `chat_id`/`call_id`/`video`
+and honours the kill-switch + per-user prefs; trigger word no longer posted as a message.
+
+---
+
+## CALLING — not working, and why
+
+The web client has **complete working WebRTC** (browser↔browser calls work today, subject to NAT).
+The app has a read-only Calls tab plus scheduling. Of nine `/chat/call/*` routes the app calls two.
+
+Four things are needed, in this order:
+
+1. **A native build** — `react-native-webrtc` is not installed and cannot be added by reloading.
+2. **A bus client** — `@react-native-cookies/cookies` so JS can read the session cookie, then a real
+   bus subscription. **Without this a call cannot ring** (see gotcha 4). This is not optional.
+3. **A TURN server** — `_ice_servers()` returns Google STUN only; `chats_369.turn_url` /
+   `turn_user` / `turn_cred` are unset and there is **no admin UI for them** (Google Meet has one,
+   calls have nothing). Calls will work on one wifi and fail on mobile data until this exists.
+4. **Then** port the web implementation (offer/answer ordering, trickle ICE with buffering,
+   busy-reject, teardown) and build an incoming-call screen.
+
+iOS additionally needs PushKit/CallKit, which is absent.
+
+## Build environment — current state
+
+Local builds were chosen because **EAS is blocked**: `app.json` has `owner: jicol` but the machine is
+logged in as `vacihe`.
+
+**Insight worth acting on:** the `app.json` comment warning against changing the slug exists to
+protect the *already-installed* dev client — which a rebuild replaces anyway. So `npx eas login &&
+npx eas init` under an account you control creates a fresh project and sidesteps `jicol` entirely.
+`eas.json` already has a `development` profile (`developmentClient: true`, `buildType: apk`).
+
+**Local build setup, done:** SDK at `C:\Users\sriba\AppData\Local\Android\Sdk` with
+`platforms/android-36`, build-tools 36/37, cmdline-tools, NDK 27.1. `ANDROID_HOME` +
+`ANDROID_SDK_ROOT` set. Device: Samsung SM-T510, Android 11, authorised.
+
+**Two environment fixes that will be needed again:**
+
+* **node is invisible to Gradle.** PATH points at `C:\Program Files\nodejs-nvm\nodejs`, a *directory
+  symlink* with a space in it. Groovy's `.execute()` in `android/app/build.gradle` line 13 returns an
+  empty string → `Cannot invoke method getAbsoluteFile() on null object`. Fix: prepend the real path
+  before building —
+  `export PATH="/c/Users/sriba/AppData/Local/nvm/v22.16.0:$PATH"`.
+* **RAM is the real constraint.** 8 GB installed, **5.9 GB usable**, often <1 GB free. The default
+  `-Xmx2048m` + `org.gradle.parallel=true` gets the daemon killed ("Gradle build daemon disappeared
+  unexpectedly"). `C:\Users\sriba\.gradle\gradle.properties` now sets `parallel=false`,
+  `workers.max=1`, `kotlin.compiler.execution.strategy=in-process`. It lives in GRADLE_USER_HOME
+  because `android/` is regenerated by prebuild and gitignored. Chrome/VS Code must be closed for a
+  build to have room.
+
+Build command:
+```bash
+export ANDROID_HOME="C:\\Users\\sriba\\AppData\\Local\\Android\\Sdk"
+export PATH="/c/Users/sriba/AppData/Local/nvm/v22.16.0:$PATH"
+npx expo run:android --no-install --no-bundler
+```
+`/android` and `/ios` are gitignored (lines 40-41) — the native folder is a build artefact.
+
+---
+
+## Remaining parity gaps (app vs web)
+
+**Small — the service call already exists, only UI is missing:** nickname set (`setNickname` has 0
+callers), group photo (`updateGroup(...,'photo')` no caller), invite reset/revoke, favourite star on
+the row, pin "N days left", jump-to-date in search (`searchMessages` takes `date`, nothing passes it).
+
+**Composer:** @mention autocomplete incl. `@all` (the server already sends mention pushes), emoji
+insert at caret (currently appends), `*bold* _italic_ ~strike~ \`mono\``, sentence-casing.
+
+**Larger:** multi-select + bulk star/forward/delete, rich media viewer (prev/next, zoom, filmstrip,
+download), Media + Profile tabs in `BottomTabs` (which is also what makes the all-chats media screen
+reachable — `App.js` always passes `activeChat`), admin `admin_all` monitor mode, in-thread block bar.
+
+## Known defects, documented not fixed
+
+* `chat_poll.py` uses legacy `_sql_constraints`, **silently ignored in Odoo 19** — the unique index on
+  `(option_id, user_id)` may never have been created, so double-voting may be possible. Converting it
+  to `models.Constraint` makes the upgrade **fail if duplicates already exist** — count first.
+* Call history is fully client-asserted: `/chat/call/end` writes `duration`/`missed`/`video` verbatim
+  because the server holds no call state. Fixing it properly is a design change.
+* Web dead code: `openPrivacy` / `setPrivacy` / the Privacy modal have no entry point.
+
+## Blocked on you
+
+* **EAS account** — or use the fresh-project route above.
+* **TURN server** (coturn) + the three config params, and ideally an admin panel for them.
+* **Device verification** — nothing in this session has been confirmed on a screen by me.

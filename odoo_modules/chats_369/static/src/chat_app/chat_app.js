@@ -938,9 +938,18 @@ export class Chat369App extends Component {
                         </div>
                         <div class="o369-drawersub" t-if="!state.contactInfo.is_group" t-esc="state.contactInfo.mobile"/>
                         <div class="o369-drawersub" t-if="state.contactInfo.is_group"><t t-esc="state.contactInfo.member_count"/> members</div>
+                        <div class="o369-drawerpresence" t-if="infoPresence()" t-att-class="{ 'o369-presence-on': state.contactInfo.online }" t-esc="infoPresence()"/>
                         <div class="o369-circlebtns" t-if="state.contactInfo.is_group">
                             <button class="o369-circlebtn" t-if="canAddMembers()" t-on-click="openAddMembers"><span class="o369-circleico"><i class="fa fa-user-plus"/></span><span class="o369-circlelbl">Add</span></button>
                             <button class="o369-circlebtn" t-if="canInvite()" t-on-click="openInvite"><span class="o369-circleico"><i class="fa fa-link"/></span><span class="o369-circlelbl">Invite</span></button>
+                            <button class="o369-circlebtn" t-on-click="searchFromInfo"><span class="o369-circleico"><i class="fa fa-search"/></span><span class="o369-circlelbl">Search</span></button>
+                        </div>
+                        <!-- 1:1 gets the WhatsApp circles too. Unlike the app (no WebRTC,
+                             so it opens a Meet) the browser can place the call itself. -->
+                        <div class="o369-circlebtns" t-if="!state.contactInfo.is_group and !state.contactInfo.is_self">
+                            <button class="o369-circlebtn" t-on-click="closeContactInfo"><span class="o369-circleico"><i class="fa fa-comment-o"/></span><span class="o369-circlelbl">Message</span></button>
+                            <button class="o369-circlebtn" t-if="canCall()" t-on-click="() => this.startCall(false)"><span class="o369-circleico"><i class="fa fa-phone"/></span><span class="o369-circlelbl">Audio</span></button>
+                            <button class="o369-circlebtn" t-if="canCall()" t-on-click="() => this.startCall(true)"><span class="o369-circleico"><i class="fa fa-video-camera"/></span><span class="o369-circlelbl">Video</span></button>
                             <button class="o369-circlebtn" t-on-click="searchFromInfo"><span class="o369-circleico"><i class="fa fa-search"/></span><span class="o369-circlelbl">Search</span></button>
                         </div>
                     </div>
@@ -961,6 +970,10 @@ export class Chat369App extends Component {
                             <div class="o369-drawersub" t-else="">No description</div>
                         </t>
                     </div>
+                    <div class="o369-drawersection" t-if="!state.contactInfo.is_group and state.contactInfo.about">
+                        <div class="o369-secttitle">About</div>
+                        <div class="o369-abouttext" t-esc="state.contactInfo.about"/>
+                    </div>
                     <div class="o369-drawersection" t-if="!state.contactInfo.is_group and state.contactInfo.user_id">
                         <div class="o369-secttitle">Nickname (only you see this)</div>
                         <div class="o369-nickrow">
@@ -971,6 +984,15 @@ export class Chat369App extends Component {
                     <div class="o369-drawersection">
                         <div class="o369-mediarow o369-mediarow-btn" t-on-click="openMedia"><i class="fa fa-picture-o me-2"/>Media, links &amp; docs <span class="o369-mediacount" t-esc="mediaTotal()"/><i class="fa fa-chevron-right o369-rowchev"/></div>
                         <div class="o369-mediastats"><span><t t-esc="state.contactInfo.media.photos"/> photos</span><span><t t-esc="state.contactInfo.media.videos"/> videos</span><span><t t-esc="state.contactInfo.media.docs"/> docs</span></div>
+                        <!-- A preview of the newest few; the row above is the "show all". -->
+                        <div class="o369-mediastrip" t-if="state.mediaStrip.length" t-on-click="openMedia">
+                            <t t-foreach="state.mediaStrip" t-as="it" t-key="it.id">
+                                <div class="o369-stripcell">
+                                    <img t-if="it.kind === 'image'" t-att-src="it.url"/>
+                                    <span t-else="" class="o369-stripicon"><i class="fa fa-play-circle"/></span>
+                                </div>
+                            </t>
+                        </div>
                     </div>
                     <div class="o369-drawersection">
                         <div class="o369-mediarow o369-mediarow-btn" t-on-click="openDisappear"><i class="fa fa-clock-o me-2"/>Disappearing messages <span class="o369-mediacount" t-esc="disappearLabel()"/><i class="fa fa-chevron-right o369-rowchev"/></div>
@@ -1308,6 +1330,9 @@ export class Chat369App extends Component {
             // Group info redesign / media viewer / permissions (Features 2-4)
             nameEditing: false, descEditing: false, descDraft: '',
             mediaOpen: false, mediaTab: 'media', mediaItems: [],
+            // The newest few thumbnails previewed in the info view, separate from
+            // mediaItems so opening the sub-view doesn't blank the strip behind it.
+            mediaStrip: [],
             permsOpen: false,
             addMembersOpen: false, addMemberSel: [], addMemberContacts: [],
         });
@@ -1746,9 +1771,32 @@ export class Chat369App extends Component {
         if (!this.state.selectedId) return;
         this.closeMenus();
         this.state.mediaOpen = false; this.state.permsOpen = false; this.state.nameEditing = false; this.state.descEditing = false;
-        try { const res = await rpc('/chat/contact_info', { conversation_id: this.state.selectedId }); if (res && res.status) { this.state.contactInfo = res.info; this.state.nickDraft = res.info.nickname || ''; this.state.groupNameEdit = res.info.name || ''; this.state.infoOpen = true; } } catch (e) {}
+        this.state.mediaStrip = [];
+        try { const res = await rpc('/chat/contact_info', { conversation_id: this.state.selectedId }); if (res && res.status) { this.state.contactInfo = res.info; this.state.nickDraft = res.info.nickname || ''; this.state.groupNameEdit = res.info.name || ''; this.state.infoOpen = true; this.loadMediaStrip(); } } catch (e) {}
     }
     closeContactInfo() { this.state.infoOpen = false; this.state.mediaOpen = false; this.state.permsOpen = false; this.state.nameEditing = false; this.state.descEditing = false; }
+
+    // The strip is decoration: a failure just leaves the counts row, which is still
+    // a working "show all", so this never surfaces an error. /chat/media_list has no
+    // limit param (it caps at 300 server-side), so slice here.
+    async loadMediaStrip() {
+        const i = this.state.contactInfo; if (!i) return;
+        try {
+            const res = await rpc('/chat/media_list', { conversation_id: i.conversation_id, tab: 'media' });
+            if (res && res.status) this.state.mediaStrip = (res.items || []).slice(0, 4);
+        } catch (e) {}
+    }
+
+    // The drawer's status line. currentSub() is the header's — it folds in typing
+    // and a mobile-number fallback, neither of which belongs under the big avatar.
+    // Empty is a real answer: privacy or a block withholds presence.
+    infoPresence() {
+        const i = this.state.contactInfo;
+        if (!i || i.is_group || i.is_self) return '';
+        if (i.online) return 'online';
+        if (i.last_seen) return 'last seen ' + this.lastSeenLabel(i.last_seen);
+        return '';
+    }
 
     // ---- group info redesign (Feature 2): permission helpers ----
     canEditInfo() { const i = this.state.contactInfo; return !!(i && (i.is_admin || (i.permissions && i.permissions.perm_edit_info))); }

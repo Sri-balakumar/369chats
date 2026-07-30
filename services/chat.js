@@ -381,6 +381,9 @@ export async function fetchMediaList(conversationId, tab = 'media') {
   return (res.items || []).map((i) => ({
     id: i.id, kind: i.kind, name: i.name || '',
     url: i.url && i.url.startsWith('/') ? `${b}${i.url}` : i.url,
+    // Needed to hand the OS a real intent type. Empty on a server that predates
+    // the field, which falls back to the old */* behaviour rather than breaking.
+    mimetype: i.mimetype || '',
     created: nz(i.created), monthLabel: i.month_label || '',
   }));
 }
@@ -582,6 +585,17 @@ export async function contactInfo(conversationId) {
     role: i.role || 'developer',
     nickname: i.nickname || '',
     blockedByMe: !!i.blocked_by_me,
+    about: i.about || '',
+    // Fresh at open time, unlike the conversation row a screen was handed on
+    // navigation. Same mutually-exclusive contract as normalizeConversation.
+    //
+    // hasPresence distinguishes "the server says offline / withheld it" from "this
+    // server predates the field". Without it a caller can't tell a real false from
+    // a missing key, and would either ignore fresh data or show a stale last seen
+    // the server deliberately withheld.
+    hasPresence: 'online' in i,
+    online: !!i.online,
+    lastSeen: nz(i.last_seen),
   };
 }
 
@@ -621,6 +635,7 @@ export async function fetchAllMedia(tab = 'media') {
   return (res.items || []).map((i) => ({
     id: i.id, kind: i.kind, name: i.name || '',
     url: i.url && i.url.startsWith('/') ? `${b}${i.url}` : i.url,
+    mimetype: i.mimetype || '',   // see fetchMediaList
     created: nz(i.created), monthLabel: i.month_label || '',
     chat: i.chat || '', author: i.author || '', duration: i.duration || 0,
   }));
@@ -750,10 +765,15 @@ export async function createMeet(conversationId) {
   return normalizeMessage(res.message || {}, b);
 }
 
-// ─────────────────────────────── calls (history only) ───────────────────────────────
+// ─────────────────────────────── calls ───────────────────────────────
+//
+// PLACING a call needs WebRTC (react-native-webrtc), which this app does not
+// carry — and, just as importantly, a bus client: ring events arrive only on the
+// Odoo bus, and services/chatRealtime.js is a poller that stops when
+// backgrounded. Scheduling, history and favourites are plain JSON routes, so
+// those work today.
 
-// History + favourites + scheduled. Placing calls needs WebRTC (react-native-webrtc),
-// which this app does not carry — this is the read-only Calls tab.
+// History + favourites + scheduled.
 export async function fetchCalls() {
   const b = await base();
   const av = (p) => (p && b ? `${b}${p}` : null);
@@ -772,6 +792,26 @@ export async function fetchCalls() {
       mine: !!u.mine, organizer: u.organizer || '', conversationId: nz(u.conversation_id),
     })),
   };
+}
+
+// Schedule a call. `when` MUST be a UTC ISO string: the server normalises it with
+// `when.replace('T',' ').replace('Z','')[:19]`, so it stores whatever timezone it
+// is handed — send local time and the reminder fires at the wrong hour.
+export async function scheduleCall({ title, when, video = false, conversationId = 0 }) {
+  const res = await call('/chat/call/schedule', {
+    title: String(title || '').slice(0, 120),
+    when: when instanceof Date ? when.toISOString() : String(when || ''),
+    video: !!video,
+    conversation_id: Number(conversationId) || 0,
+  });
+  return res.id;
+}
+
+// Organiser only. The server silently no-ops for anyone else rather than
+// failing, so callers must gate on the `mine` flag from fetchCalls() instead of
+// waiting for an error that never comes.
+export function cancelScheduledCall(id) {
+  return call('/chat/call/schedule/cancel', { id: Number(id) });
 }
 
 // ─────────────────────────────── link preview ───────────────────────────────

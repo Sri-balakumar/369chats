@@ -13,8 +13,11 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, SHADOW, RADIUS, SPACING, TOP, themed } from '../theme';
-import { Screen, Loader, EmptyState, Avatar, Sheet, Switch } from '../components/ui';
+import { COLORS, RADIUS, SPACING, themed } from '../theme';
+import {
+  Screen, ScreenHeader, Loader, EmptyState, Avatar, Sheet, Switch,
+  InfoSection, InfoHero, MemberRow,
+} from '../components/ui';
 import * as chat from '../services/chat';
 import { createLogger } from '../api/logger';
 
@@ -117,7 +120,7 @@ export default function GroupManageScreen({ conversation, onBack, onChanged }) {
   if (error || !info) {
     return (
       <Screen>
-        <Header onBack={onBack} title="Group" />
+        <ScreenHeader title="Group" onBack={onBack} />
         <EmptyState icon="alert-circle-outline" tone="error" title={error || 'Not found'} onRetry={load} />
       </Screen>
     );
@@ -125,15 +128,14 @@ export default function GroupManageScreen({ conversation, onBack, onChanged }) {
 
   return (
     <Screen>
-      <Header onBack={onBack} title="Manage group" />
+      <ScreenHeader title="Manage group" onBack={onBack} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 + insets.bottom }} showsVerticalScrollIndicator={false}>
-        <View style={s.hero}>
-          <Avatar name={info.name} uri={info.avatarUrl} size={92} />
-          <Text style={s.title} numberOfLines={2}>{info.name}</Text>
-          <Text style={s.sub}>{info.memberCount} members</Text>
-        </View>
+        <InfoHero
+          name={info.name} uri={info.avatarUrl} size={92}
+          title={info.name} sub={`${info.memberCount} members`}
+        />
 
-        <View style={s.card}>
+        <InfoSection>
           <Item
             icon="pencil-outline" label="Group name" value={info.name}
             onPress={canEditInfo ? () => setRenameOpen(true) : null}
@@ -142,18 +144,20 @@ export default function GroupManageScreen({ conversation, onBack, onChanged }) {
             icon="document-text-outline" label="Description"
             value={info.description || 'No description'}
             onPress={canEditInfo ? () => setRenameOpen(true) : null}
+            last={!canInvite}
           />
-          {canInvite && <Item icon="link-outline" label="Invite via link" value={invite || 'Tap to share'} onPress={shareInvite} />}
-        </View>
+          {canInvite && (
+            <Item icon="link-outline" label="Invite via link" value={invite || 'Tap to share'} onPress={shareInvite} last />
+          )}
+        </InfoSection>
 
         {info.isAdmin && (
           <>
-            <Text style={s.section}>Permissions</Text>
-            <View style={s.card}>
-              {PERMS.map((p) => {
+            <InfoSection title="Permissions">
+              {PERMS.map((p, i) => {
                 const on = !!info.permissions?.[p.key];
                 return (
-                  <View key={p.key} style={s.permRow}>
+                  <View key={p.key} style={[s.permRow, i === PERMS.length - 1 && s.permRowLast]}>
                     <View style={{ flex: 1 }}>
                       <Text style={s.permLabel}>{p.label}</Text>
                       {!on && <Text style={s.permOff}>{p.off}</Text>}
@@ -168,40 +172,33 @@ export default function GroupManageScreen({ conversation, onBack, onChanged }) {
                   </View>
                 );
               })}
-            </View>
+            </InfoSection>
           </>
         )}
 
-        <View style={s.sectionRow}>
-          <Text style={[s.section, { paddingHorizontal: 0 }]}>{info.members?.length || 0} members</Text>
-          {canAdd && (
+        <InfoSection
+          title={`${info.members?.length || 0} members`}
+          right={canAdd ? (
             <TouchableOpacity style={s.addBtn} onPress={openAdd} activeOpacity={0.85}>
               <Ionicons name="person-add-outline" size={15} color={COLORS.primary} />
               <Text style={s.addTxt}>Add</Text>
             </TouchableOpacity>
-          )}
-        </View>
-
-        <View style={s.card}>
-          {(info.members || []).map((m) => (
-            <TouchableOpacity
-              key={m.id} style={s.member} activeOpacity={info.isAdmin ? 0.7 : 1}
-              onPress={() => memberMenu(m)}
-            >
-              <Avatar name={m.name} uri={m.avatarUrl} size={40} />
-              <View style={{ flex: 1 }}>
-                <Text style={s.memberName} numberOfLines={1}>
-                  {m.name}{m.id === info.meId ? ' (You)' : ''}
-                </Text>
-                {!!m.mobile && <Text style={s.memberMeta}>{m.mobile}</Text>}
-              </View>
-              {m.isAdmin && <View style={s.pill}><Text style={s.pillTxt}>Admin</Text></View>}
-              {info.isAdmin && m.id !== info.meId && (
-                <Ionicons name="ellipsis-vertical" size={16} color={COLORS.faint} />
-              )}
-            </TouchableOpacity>
+          ) : null}
+        >
+          {(info.members || []).map((m, i) => (
+            <MemberRow
+              key={m.id}
+              name={m.name} uri={m.avatarUrl} meta={m.mobile}
+              you={m.id === info.meId} admin={m.isAdmin}
+              // Only admins get a menu, so only they get a tappable row.
+              onPress={info.isAdmin && m.id !== info.meId ? () => memberMenu(m) : null}
+              right={info.isAdmin && m.id !== info.meId
+                ? <Ionicons name="ellipsis-vertical" size={16} color={COLORS.faint} />
+                : null}
+              last={i === (info.members.length - 1)}
+            />
           ))}
-        </View>
+        </InfoSection>
       </ScrollView>
 
       {/* Rename + description */}
@@ -258,21 +255,14 @@ export default function GroupManageScreen({ conversation, onBack, onChanged }) {
   );
 }
 
-function Header({ onBack, title }) {
+// Label-above-value, unlike the shared InfoRow's label-with-sub: these rows are
+// editable fields, so the current value is the thing to read.
+function Item({ icon, label, value, onPress, last }) {
   return (
-    <View style={[s.header, { paddingTop: TOP }]}>
-      <TouchableOpacity onPress={onBack} style={s.iconBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-        <Ionicons name="chevron-back" size={24} color={COLORS.navy} />
-      </TouchableOpacity>
-      <Text style={s.headerTitle}>{title}</Text>
-      <View style={{ width: 40 }} />
-    </View>
-  );
-}
-
-function Item({ icon, label, value, onPress }) {
-  return (
-    <TouchableOpacity style={s.item} onPress={onPress} activeOpacity={onPress ? 0.7 : 1} disabled={!onPress}>
+    <TouchableOpacity
+      style={[s.item, last && s.itemLast]}
+      onPress={onPress} activeOpacity={onPress ? 0.7 : 1} disabled={!onPress}
+    >
       <Ionicons name={icon} size={20} color={COLORS.primary} />
       <View style={{ flex: 1 }}>
         <Text style={s.itemLabel}>{label}</Text>
@@ -284,41 +274,15 @@ function Item({ icon, label, value, onPress }) {
 }
 
 const s = themed((C) => ({
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingBottom: SPACING.md,
-  },
-  headerTitle: { flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '900', color: C.navy },
-  iconBtn: {
-    width: 40, height: 40, borderRadius: RADIUS.lg, backgroundColor: COLORS.card,
-    alignItems: 'center', justifyContent: 'center', ...SHADOW,
-  },
-
-  hero: { alignItems: 'center', paddingVertical: SPACING.xl, gap: SPACING.xs },
-  title: { fontSize: 20, fontWeight: '900', color: C.navy, textAlign: 'center', paddingHorizontal: 30 },
-  sub: { fontSize: 13.5, color: C.slate500, fontWeight: '600' },
-
-  card: {
-    marginHorizontal: SPACING.screen, marginBottom: SPACING.screen,
-    backgroundColor: COLORS.card, borderRadius: RADIUS.xl, borderWidth: 1, borderColor: C.line,
-    overflow: 'hidden', ...SHADOW,
-  },
   item: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.screen,
     paddingHorizontal: SPACING.screen, paddingVertical: SPACING.screen,
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
   },
+  itemLast: { borderBottomWidth: 0 },
   itemLabel: { fontSize: 12, color: C.slate500, fontWeight: '700' },
   itemValue: { fontSize: 14.5, color: C.ink, fontWeight: '600', marginTop: 2 },
 
-  section: {
-    fontSize: 12.5, fontWeight: '900', color: C.muted, letterSpacing: 0.8,
-    paddingHorizontal: SPACING.xl, marginBottom: SPACING.sm, textTransform: 'uppercase',
-  },
-  sectionRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: SPACING.xl, marginBottom: SPACING.sm,
-  },
   addBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     backgroundColor: COLORS.tintBg, borderRadius: RADIUS.pill, paddingHorizontal: 12, paddingVertical: 6,
@@ -330,18 +294,9 @@ const s = themed((C) => ({
     paddingHorizontal: SPACING.screen, paddingVertical: SPACING.md,
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
   },
+  permRowLast: { borderBottomWidth: 0 },
   permLabel: { fontSize: 14, color: C.ink, fontWeight: '600' },
   permOff: { fontSize: 11.5, color: C.slate500, marginTop: 2 },
-
-  member: {
-    flexDirection: 'row', alignItems: 'center', gap: SPACING.lg,
-    paddingHorizontal: SPACING.screen, paddingVertical: SPACING.md,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
-  },
-  memberName: { fontSize: 14.5, fontWeight: '700', color: C.ink },
-  memberMeta: { fontSize: 12, color: C.slate500, marginTop: 1 },
-  pill: { backgroundColor: COLORS.slate50, borderRadius: RADIUS.sm, paddingHorizontal: 8, paddingVertical: 3 },
-  pillTxt: { fontSize: 10.5, fontWeight: '900', color: C.primary },
 
   fieldLabel: { fontSize: 12.5, fontWeight: '800', color: C.muted, marginTop: SPACING.md, marginBottom: SPACING.xs },
   input: {

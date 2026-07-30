@@ -3,17 +3,25 @@
 // /chat/contact_info returns two different shapes depending on is_group, so this
 // screen genuinely renders two layouts off one payload:
 //   group → description, members (with admin badges), permissions, leave
-//   1:1   → mobile, role, nickname, block
-// Everything shared (avatar, media counts, mute, favourite, disappearing, clear)
-// is rendered once above the split.
+//   1:1   → mobile, role, about, nickname, block
+// Everything shared (avatar, media, mute, favourite, disappearing, clear) is
+// rendered once above the split.
+//
+// Laid out like WhatsApp: centred hero → action circles → media row → stacked
+// cards. The card/row/hero/member shapes are shared with GroupManageScreen via
+// components/ui/InfoSection, so a change to the look lands on both screens.
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert,
+  View, Text, TouchableOpacity, ScrollView, Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, SHADOW, RADIUS, SPACING, TOP, themed } from '../theme';
-import { Screen, Loader, EmptyState, Avatar, PopupModal, Switch } from '../components/ui';
+import { COLORS, RADIUS, SPACING, themed } from '../theme';
+import {
+  Screen, ScreenHeader, Loader, EmptyState, Avatar, PopupModal, Switch,
+  ConfirmDialog, InfoSection, InfoRow, InfoHero, MemberRow,
+} from '../components/ui';
+import AuthImage from '../components/chat/AuthImage';
 import * as chat from '../services/chat';
 import presenceText from '../utils/presence';
 import { createLogger } from '../api/logger';
@@ -29,32 +37,29 @@ const DISAPPEAR = [
   { seconds: 7776000, label: '90 days' },
 ];
 
-function Stat({ icon, value, label }) {
-  return (
-    <View style={s.stat}>
-      <Ionicons name={icon} size={19} color={COLORS.primary} />
-      <Text style={s.statVal}>{value}</Text>
-      <Text style={s.statLbl}>{label}</Text>
-    </View>
-  );
-}
+// How many thumbnails the media row previews. WhatsApp shows a short strip and
+// puts the rest behind the chevron; /chat/media_list has no limit param, so the
+// full (capped) list comes back and we slice.
+const STRIP = 4;
 
-function Action({ icon, label, onPress, tone, right, sub }) {
-  const color = tone === 'danger' ? COLORS.red : COLORS.ink;
+// The circle actions under the name. There is no native calling in this product —
+// services/chat.js offers createMeet/scheduleCall only — so Audio and Video both
+// open a Google Meet, which is what the ⋮ "Start a meeting" already does.
+function Circle({ icon, label, onPress, disabled }) {
   return (
-    <TouchableOpacity style={s.action} onPress={onPress} activeOpacity={onPress ? 0.7 : 1} disabled={!onPress}>
-      <Ionicons name={icon} size={20} color={tone === 'danger' ? COLORS.red : COLORS.primary} />
-      <View style={{ flex: 1 }}>
-        <Text style={[s.actionTxt, { color }]}>{label}</Text>
-        {!!sub && <Text style={s.actionSub}>{sub}</Text>}
+    <TouchableOpacity
+      style={s.circleWrap} onPress={onPress} activeOpacity={0.7} disabled={!onPress || disabled}
+    >
+      <View style={[s.circle, disabled && s.circleOff]}>
+        <Ionicons name={icon} size={21} color={disabled ? COLORS.faint : COLORS.primary} />
       </View>
-      {right}
+      <Text style={[s.circleTxt, disabled && { color: COLORS.faint }]}>{label}</Text>
     </TouchableOpacity>
   );
 }
 
 export default function ContactInfoScreen({
-  conversation, onBack, onLeft, onManageGroup, onOpenChat,
+  conversation, onBack, onLeft, onManageGroup, onOpenChat, onOpenMedia, onOpenGmeet,
 }) {
   // Edge-to-edge draws under the nav bar; reserve that space at the bottom.
   const insets = useSafeAreaInsets();
@@ -65,6 +70,9 @@ export default function ContactInfoScreen({
   const [disappearOpen, setDisappearOpen] = useState(false);
   const [member, setMember] = useState(null);   // tapped group member
   const [busy, setBusy] = useState(false);
+  const [strip, setStrip] = useState([]);       // recent media thumbnails
+  const [gmeet, setGmeet] = useState(null);
+  const [confirm, setConfirm] = useState(null); // { title, message, icon, actions }
 
   const load = useCallback(async () => {
     setError(null);
@@ -77,6 +85,27 @@ export default function ContactInfoScreen({
   }, [convId]);
 
   useEffect(() => { (async () => { setLoading(true); await load(); setLoading(false); })(); }, [load]);
+
+  // The strip is decoration: a failure leaves the row showing counts only, which
+  // is still a working "show all" affordance, so it never surfaces an error.
+  useEffect(() => {
+    let alive = true;
+    if (!convId) return undefined;
+    chat.fetchMediaList(convId, 'media')
+      .then((items) => { if (alive) setStrip((items || []).slice(0, STRIP)); })
+      .catch((e) => log.warn('media strip failed', e?.message));
+    return () => { alive = false; };
+  }, [convId]);
+
+  // Cached for a minute in the service, so this is cheap and keeps the circles
+  // from offering a meeting the workspace will refuse.
+  useEffect(() => {
+    let alive = true;
+    chat.gmeetStatus()
+      .then((st) => { if (alive) setGmeet(st); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   // Optimistic toggles: flip locally, call, and reload on failure so the switch
   // never lies about server state.
@@ -96,59 +125,92 @@ export default function ContactInfoScreen({
     }
   };
 
-  const confirmClear = () => {
-    Alert.alert('Clear chat?', 'Messages will be hidden for you. Everyone else keeps their copy.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Clear',
-        style: 'destructive',
-        onPress: async () => {
-          try { await chat.clearChat(convId); Alert.alert('Cleared', 'This chat has been cleared for you.'); }
-          catch (e) { Alert.alert('Failed', e?.message || 'Could not clear the chat.'); }
-        },
+  const confirmClear = () => setConfirm({
+    title: 'Clear chat?',
+    message: 'Messages will be hidden for you. Everyone else keeps their copy.',
+    icon: 'trash-outline',
+    actions: [{
+      key: 'clear', label: 'Clear chat', tone: 'danger',
+      onPress: async () => {
+        setConfirm(null);
+        try { await chat.clearChat(convId); }
+        catch (e) { Alert.alert('Failed', e?.message || 'Could not clear the chat.'); }
       },
-    ]);
-  };
+    }],
+  });
 
   const confirmLeave = () => {
     const group = info?.isGroup;
-    Alert.alert(
-      group ? 'Exit group?' : 'Delete chat?',
-      group ? 'You will stop receiving messages from this group.'
+    setConfirm({
+      title: group ? 'Exit group?' : 'Delete chat?',
+      message: group
+        ? 'You will stop receiving messages from this group.'
         : 'The chat disappears from your list. It comes back if they message you again.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: group ? 'Exit' : 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try { await chat.leaveChat(convId); onLeft?.(); }
-            catch (e) { Alert.alert('Failed', e?.message || 'Please try again.'); }
-          },
+      icon: 'exit-outline',
+      actions: [{
+        key: 'leave', label: group ? 'Exit group' : 'Delete chat', tone: 'danger',
+        onPress: async () => {
+          setConfirm(null);
+          try { await chat.leaveChat(convId); onLeft?.(); }
+          catch (e) { Alert.alert('Failed', e?.message || 'Please try again.'); }
         },
-      ],
-    );
+      }],
+    });
   };
 
   const toggleBlock = () => {
     const next = !info.blockedByMe;
-    Alert.alert(
-      next ? `Block ${info.name}?` : `Unblock ${info.name}?`,
-      next ? 'They will not be able to message or call you, and neither of you will see the other online.' : '',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: next ? 'Block' : 'Unblock',
-          style: next ? 'destructive' : 'default',
-          onPress: async () => {
-            try {
-              const blocked = await chat.blockUser(info.userId, next);
-              setInfo((p) => ({ ...p, blockedByMe: blocked }));
-            } catch (e) { Alert.alert('Failed', e?.message || 'Please try again.'); }
-          },
+    setConfirm({
+      title: next ? `Block ${info.name}?` : `Unblock ${info.name}?`,
+      message: next
+        ? 'They will not be able to message or call you, and neither of you will see the other online.'
+        : 'They will be able to message you again.',
+      icon: next ? 'ban-outline' : 'lock-open-outline',
+      tone: next ? 'danger' : 'primary',
+      actions: [{
+        key: 'block', label: next ? 'Block' : 'Unblock', tone: next ? 'danger' : 'primary',
+        onPress: async () => {
+          setConfirm(null);
+          try {
+            const blocked = await chat.blockUser(info.userId, next);
+            setInfo((p) => ({ ...p, blockedByMe: blocked }));
+          } catch (e) { Alert.alert('Failed', e?.message || 'Please try again.'); }
         },
-      ],
-    );
+      }],
+    });
+  };
+
+  // Same checks and wording as the thread's ⋮ "Start a meeting" (startMeet in
+  // ChatThreadScreen) — re-fetched here because the cached status may be stale.
+  // The meeting is posted as a message, so we hand the user back to the thread
+  // where it appears rather than trying to render it from this screen.
+  const startMeet = async () => {
+    setBusy(true);
+    try {
+      const st = await chat.gmeetStatus({ force: true });
+      if (!st.connected) {
+        if (st.isAdmin) { onOpenGmeet?.(); return; }
+        Alert.alert(
+          'Google Meet not connected',
+          'An administrator needs to connect the shared Google account in Odoo before meetings can be created.',
+        );
+        return;
+      }
+      if (st.scope === 'groups' && !info.isGroup) {
+        Alert.alert('Not allowed', 'Meetings are limited to group chats here.');
+        return;
+      }
+      if (st.scope === 'direct' && info.isGroup) {
+        Alert.alert('Not allowed', 'Meetings are limited to direct chats here.');
+        return;
+      }
+      await chat.createMeet(convId);
+      onBack?.();
+    } catch (e) {
+      Alert.alert('Failed', e?.message || 'Please try again.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   // Member actions. "Message" opens (or creates) the 1:1 with that person —
@@ -183,46 +245,45 @@ export default function ContactInfoScreen({
   if (error || !info) {
     return (
       <Screen>
-        <View style={[s.header, { paddingTop: TOP }]}>
-          <TouchableOpacity onPress={onBack} style={s.iconBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Ionicons name="chevron-back" size={24} color={COLORS.navy} />
-          </TouchableOpacity>
-          <Text style={s.headerTitle}>Details</Text>
-          <View style={{ width: 40 }} />
-        </View>
+        <ScreenHeader title="Details" onBack={onBack} />
         <EmptyState icon="alert-circle-outline" tone="error" title={error || 'Not found'} onRetry={load} />
       </Screen>
     );
   }
 
   const disappearLabel = (DISAPPEAR.find((d) => d.seconds === info.disappearSeconds) || DISAPPEAR[0]).label;
+  const media = info.media || {};
+  const mediaTotal = (media.photos || 0) + (media.videos || 0) + (media.docs || 0);
+
+  // Presence now ships with /chat/contact_info, so it is fresh as of this screen
+  // opening. The conversation row — a snapshot from whenever the list was last
+  // polled — is only a fallback for a server that predates the field. An empty
+  // result is a legitimate answer (privacy or a block withholds it), so render
+  // nothing rather than "offline".
+  const online = info.hasPresence ? info.online : conversation?.online;
+  const lastSeen = info.hasPresence ? info.lastSeen : conversation?.lastSeen;
+  const presence = info.isGroup || info.isSelf ? '' : presenceText({ online, lastSeen });
+
+  // Let the server have the final say; these only decide whether the circle looks
+  // available, and startMeet re-checks and explains.
+  const meetScopeOk = !gmeet
+    || (gmeet.scope !== 'groups' && gmeet.scope !== 'direct')
+    || (gmeet.scope === 'groups' ? info.isGroup : !info.isGroup);
+  const canMeet = !gmeet || (!!gmeet.connected && meetScopeOk);
 
   return (
     <Screen>
-      <View style={[s.header, { paddingTop: TOP }]}>
-        <TouchableOpacity onPress={onBack} style={s.iconBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Ionicons name="chevron-back" size={24} color={COLORS.navy} />
-        </TouchableOpacity>
-        <Text style={s.headerTitle}>{info.isGroup ? 'Group info' : 'Contact info'}</Text>
-        <View style={{ width: 40 }} />
-      </View>
+      <ScreenHeader title={info.isGroup ? 'Group info' : 'Contact info'} onBack={onBack} />
 
       <ScrollView contentContainerStyle={{ paddingBottom: 40 + insets.bottom }} showsVerticalScrollIndicator={false}>
-        <View style={s.hero}>
-          <Avatar name={info.title || info.name} uri={info.avatarUrl} size={104} />
-          <Text style={s.name} numberOfLines={2}>{info.title || info.name}</Text>
-          {info.isGroup
-            ? <Text style={s.sub}>{info.memberCount} members</Text>
-            : <Text style={s.sub}>{info.mobile || info.role}</Text>}
-          {/* Presence comes from the conversation row, not /chat/contact_info —
-              the server only serialises it there. Blank when privacy or a block
-              withholds it, which is a real answer rather than missing data. */}
-          {!info.isGroup && !info.isSelf && !!presenceText({
-            online: conversation?.online, lastSeen: conversation?.lastSeen,
-          }) && (
-            <Text style={[s.presence, conversation?.online && s.presenceOn]}>
-              {presenceText({ online: conversation?.online, lastSeen: conversation?.lastSeen })}
-            </Text>
+        <InfoHero
+          name={info.title || info.name}
+          uri={info.avatarUrl}
+          title={info.title || info.name}
+          sub={info.isGroup ? `${info.memberCount} members` : (info.mobile || info.role)}
+        >
+          {!!presence && (
+            <Text style={[s.presence, online && s.presenceOn]}>{presence}</Text>
           )}
           {!info.isGroup && !!info.nickname && (
             <Text style={s.nickname}>Saved as “{info.nickname}”</Text>
@@ -230,83 +291,113 @@ export default function ContactInfoScreen({
           {info.isGroup && !!info.description && (
             <Text style={s.description}>{info.description}</Text>
           )}
-        </View>
+        </InfoHero>
 
-        <View style={s.statRow}>
-          <Stat icon="image-outline" value={info.media?.photos ?? 0} label="Photos" />
-          <Stat icon="videocam-outline" value={info.media?.videos ?? 0} label="Videos" />
-          <Stat icon="document-outline" value={info.media?.docs ?? 0} label="Docs" />
-        </View>
-
-        <View style={s.card}>
-          <Action
-            icon="notifications-off-outline" label="Mute notifications"
-            right={<Switch value={!!info.muted} onValueChange={() => toggle('muted', (v) => chat.muteConversation(convId, v, 0))} />}
-          />
-          <Action
-            icon="star-outline" label="Favourite"
-            right={<Switch value={!!info.favourite} onValueChange={() => toggle('favourite', (v) => chat.favouriteConversation(convId, v))} />}
-          />
-          <Action
-            icon="timer-outline" label="Disappearing messages" sub={disappearLabel}
-            onPress={() => setDisappearOpen(true)}
-            right={<Ionicons name="chevron-forward" size={18} color={COLORS.faint} />}
-          />
-        </View>
-
-        {info.isGroup ? (
-          <>
-            <View style={s.card}>
-              <Action
-                icon="settings-outline" label="Manage group"
-                sub={info.isAdmin ? 'You are an admin' : 'Name, members and permissions'}
-                onPress={onManageGroup}
-                right={<Ionicons name="chevron-forward" size={18} color={COLORS.faint} />}
-              />
-            </View>
-            <Text style={s.sectionTitle}>{info.members?.length || 0} members</Text>
-            <View style={s.card}>
-              {(info.members || []).map((m) => (
-                <TouchableOpacity
-                  key={m.id} style={s.member} activeOpacity={0.7}
-                  onPress={() => setMember(m)}
-                >
-                  <Avatar name={m.name} uri={m.avatarUrl} size={40} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.memberName} numberOfLines={1}>
-                      {m.name}{m.id === info.meId ? ' (You)' : ''}
-                    </Text>
-                    {!!m.mobile && <Text style={s.memberMeta}>{m.mobile}</Text>}
-                  </View>
-                  {m.isAdmin && <View style={s.adminPill}><Text style={s.adminTxt}>Admin</Text></View>}
-                </TouchableOpacity>
-              ))}
-            </View>
-          </>
-        ) : (
-          <View style={s.card}>
-            <Action icon="call-outline" label={info.mobile || 'No number on file'} />
-            <Action icon="person-outline" label={`Role · ${info.role}`} />
+        {/* Circle actions. 1:1 only — a group already reaches Manage group below,
+            and the web client gates its own circle row the same way. */}
+        {!info.isGroup && !info.isSelf && (
+          <View style={s.circles}>
+            <Circle icon="chatbubble-outline" label="Message" onPress={onBack} />
+            <Circle icon="call-outline" label="Audio" onPress={startMeet} disabled={busy || !canMeet} />
+            <Circle icon="videocam-outline" label="Video" onPress={startMeet} disabled={busy || !canMeet} />
           </View>
         )}
 
-        <View style={s.card}>
-          <Action icon="trash-outline" label="Clear chat" onPress={confirmClear} />
+        {/* Media, links and docs — the counts used to be three dead tiles. */}
+        <InfoSection>
+          <InfoRow
+            icon="images-outline" label="Media, links and docs"
+            sub={`${media.photos || 0} photos · ${media.videos || 0} videos · ${media.docs || 0} docs`}
+            onPress={onOpenMedia}
+            right={<Text style={s.count}>{mediaTotal}</Text>}
+            chevron={!!onOpenMedia}
+            last={!strip.length}
+          />
+          {!!strip.length && (
+            <TouchableOpacity style={s.strip} onPress={onOpenMedia} activeOpacity={0.8} disabled={!onOpenMedia}>
+              {strip.map((it) => (
+                <View key={it.id} style={s.thumb}>
+                  {/* /chats_369/media/<id> is auth='user' and RN's image pipeline
+                      has its own cookie jar — AuthImage is the only way in. */}
+                  <AuthImage uri={it.url} id={it.id} mimetype={it.mimetype} style={s.thumbImg} />
+                  {it.kind === 'video' && (
+                    <View style={s.play}><Ionicons name="play" size={12} color={COLORS.onOverlay} /></View>
+                  )}
+                </View>
+              ))}
+            </TouchableOpacity>
+          )}
+        </InfoSection>
+
+        {!info.isGroup && !!info.about && (
+          <InfoSection title="About">
+            <InfoRow icon="information-circle-outline" label={info.about} last />
+          </InfoSection>
+        )}
+
+        <InfoSection>
+          <InfoRow
+            icon="notifications-off-outline" label="Mute notifications"
+            right={<Switch value={!!info.muted} onValueChange={() => toggle('muted', (v) => chat.muteConversation(convId, v, 0))} />}
+          />
+          <InfoRow
+            icon="star-outline" label="Favourite"
+            right={<Switch value={!!info.favourite} onValueChange={() => toggle('favourite', (v) => chat.favouriteConversation(convId, v))} />}
+          />
+          <InfoRow
+            icon="timer-outline" label="Disappearing messages" sub={disappearLabel}
+            onPress={() => setDisappearOpen(true)} chevron last
+          />
+        </InfoSection>
+
+        {info.isGroup ? (
+          <>
+            <InfoSection>
+              <InfoRow
+                icon="settings-outline" label="Manage group"
+                sub={info.isAdmin ? 'You are an admin' : 'Name, members and permissions'}
+                onPress={onManageGroup} chevron last
+              />
+            </InfoSection>
+            <InfoSection title={`${info.members?.length || 0} members`}>
+              {(info.members || []).map((m, i) => (
+                <MemberRow
+                  key={m.id}
+                  name={m.name} uri={m.avatarUrl} meta={m.mobile}
+                  you={m.id === info.meId} admin={m.isAdmin}
+                  onPress={() => setMember(m)}
+                  last={i === (info.members.length - 1)}
+                />
+              ))}
+            </InfoSection>
+          </>
+        ) : (
+          <InfoSection>
+            <InfoRow icon="call-outline" label={info.mobile || 'No number on file'} />
+            <InfoRow icon="person-outline" label={`Role · ${info.role}`} last />
+          </InfoSection>
+        )}
+
+        <InfoSection>
+          <InfoRow
+            icon="trash-outline" label="Clear chat" onPress={confirmClear}
+            last={info.isSelf}
+          />
           {!info.isGroup && !info.isSelf && (
-            <Action
+            <InfoRow
               icon={info.blockedByMe ? 'lock-open-outline' : 'ban-outline'}
               label={info.blockedByMe ? `Unblock ${info.name}` : `Block ${info.name}`}
               tone="danger" onPress={toggleBlock}
             />
           )}
           {!info.isSelf && (
-            <Action
+            <InfoRow
               icon="exit-outline"
               label={info.isGroup ? 'Exit group' : 'Delete chat'}
-              tone="danger" onPress={confirmLeave}
+              tone="danger" onPress={confirmLeave} last
             />
           )}
-        </View>
+        </InfoSection>
       </ScrollView>
 
       {/* Tap a group member */}
@@ -350,79 +441,63 @@ export default function ContactInfoScreen({
           Applies to new messages only. Existing messages keep the timer they were sent with.
         </Text>
       </PopupModal>
+
+      <ConfirmDialog
+        visible={!!confirm}
+        title={confirm?.title}
+        message={confirm?.message}
+        icon={confirm?.icon}
+        tone={confirm?.tone || 'danger'}
+        actions={confirm?.actions || []}
+        onCancel={() => setConfirm(null)}
+      />
     </Screen>
   );
 }
 
 const s = themed((C) => ({
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingBottom: SPACING.md,
-  },
-  headerTitle: { flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '900', color: C.navy },
-  iconBtn: {
-    width: 40, height: 40, borderRadius: RADIUS.lg, backgroundColor: COLORS.card,
-    alignItems: 'center', justifyContent: 'center', ...SHADOW,
-  },
-
-  hero: { alignItems: 'center', paddingVertical: SPACING.xl, gap: SPACING.sm },
-  name: { fontSize: 21, fontWeight: '900', color: C.navy, textAlign: 'center', paddingHorizontal: 30 },
-  sub: { fontSize: 14, color: C.slate500, fontWeight: '600' },
-  nickname: { fontSize: 12.5, color: C.faint, fontStyle: 'italic' },
   presence: { fontSize: 12.5, color: C.slate500, fontWeight: '600' },
   presenceOn: { color: C.green, fontWeight: '700' },
+  nickname: { fontSize: 12.5, color: C.faint, fontStyle: 'italic' },
   description: { fontSize: 13.5, color: C.slate500, textAlign: 'center', paddingHorizontal: 30, marginTop: 4 },
 
-  statRow: {
-    flexDirection: 'row', marginHorizontal: SPACING.screen, marginBottom: SPACING.screen,
-    backgroundColor: COLORS.card, borderRadius: RADIUS.xl, borderWidth: 1, borderColor: C.line, ...SHADOW,
+  circles: {
+    flexDirection: 'row', justifyContent: 'center', gap: SPACING.xl * 1.6,
+    marginBottom: SPACING.xl,
   },
-  stat: { flex: 1, alignItems: 'center', paddingVertical: SPACING.screen, gap: 2 },
-  statVal: { fontSize: 17, fontWeight: '900', color: C.ink },
-  statLbl: { fontSize: 11.5, color: C.slate500, fontWeight: '600' },
+  circleWrap: { alignItems: 'center', gap: SPACING.xs },
+  circle: {
+    width: 46, height: 46, borderRadius: 23, backgroundColor: COLORS.tintBg,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  circleOff: { backgroundColor: COLORS.slate100 },
+  circleTxt: { fontSize: 12, fontWeight: '700', color: C.primary },
 
-  card: {
-    marginHorizontal: SPACING.screen, marginBottom: SPACING.screen,
-    backgroundColor: COLORS.card, borderRadius: RADIUS.xl, borderWidth: 1, borderColor: C.line,
-    overflow: 'hidden', ...SHADOW,
+  count: { fontSize: 13.5, fontWeight: '700', color: C.slate500 },
+  strip: { flexDirection: 'row', gap: 3, paddingHorizontal: 3, paddingBottom: 3 },
+  thumb: { flex: 1, aspectRatio: 1, borderRadius: RADIUS.sm, overflow: 'hidden', backgroundColor: COLORS.slate100 },
+  thumbImg: { width: '100%', height: '100%' },
+  play: {
+    position: 'absolute', right: 4, bottom: 4,
+    width: 18, height: 18, borderRadius: 9, backgroundColor: C.scrim,
+    alignItems: 'center', justifyContent: 'center',
   },
-  action: {
-    flexDirection: 'row', alignItems: 'center', gap: SPACING.screen,
-    paddingHorizontal: SPACING.screen, paddingVertical: SPACING.screen,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
-  },
-  actionTxt: { fontSize: 15, fontWeight: '700' },
-  actionSub: { fontSize: 12.5, color: C.slate500, marginTop: 2 },
-
-  sectionTitle: {
-    fontSize: 12.5, fontWeight: '900', color: C.muted, letterSpacing: 0.8,
-    paddingHorizontal: SPACING.xl, marginBottom: SPACING.sm, textTransform: 'uppercase',
-  },
-  member: {
-    flexDirection: 'row', alignItems: 'center', gap: SPACING.lg,
-    paddingHorizontal: SPACING.screen, paddingVertical: SPACING.md,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
-  },
-  memberName: { fontSize: 14.5, fontWeight: '700', color: C.ink },
-  memberMeta: { fontSize: 12, color: C.slate500, marginTop: 1 },
-  adminPill: { backgroundColor: COLORS.slate50, borderRadius: RADIUS.sm, paddingHorizontal: 8, paddingVertical: 3 },
-  adminTxt: { fontSize: 10.5, fontWeight: '900', color: C.primary },
 
   pick: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: SPACING.xl, paddingVertical: SPACING.screen,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
+    borderBottomWidth: 1, borderBottomColor: C.line,
   },
+  pickTxt: { fontSize: 15, color: C.ink, fontWeight: '600' },
+  pickNote: { fontSize: 11.5, color: C.faint, padding: SPACING.xl, lineHeight: 16 },
+
   memberHero: { alignItems: 'center', gap: 4, paddingTop: SPACING.screen, paddingBottom: SPACING.md },
   memberHeroName: { fontSize: 16.5, fontWeight: '800', color: C.navy },
   memberHeroMeta: { fontSize: 12.5, color: C.slate500 },
   memberAction: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.lg,
     paddingHorizontal: SPACING.xl, paddingVertical: SPACING.screen,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.line,
+    borderTopWidth: 1, borderTopColor: C.line,
   },
   memberActionTxt: { fontSize: 15, color: C.ink, fontWeight: '700' },
-
-  pickTxt: { fontSize: 15, color: C.ink, fontWeight: '600' },
-  pickNote: { fontSize: 11.5, color: C.faint, padding: SPACING.xl, lineHeight: 16 },
 }));

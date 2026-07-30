@@ -82,10 +82,12 @@ export default function ChatMediaScreen({ conversation, onBack }) {
     // MediaViewer speaks the message shape, so adapt the gallery item to it.
     const asMsg = {
       id: it.id, kind: it.kind, mediaUrl: it.url, fileName: it.name,
-      mimetype: '', body: '', authorName: it.author || '',
+      // A real type is what makes ACTION_VIEW resolve to the default player;
+      // '*/*' gets answered with the "Open with" chooser instead.
+      mimetype: it.mimetype || '', body: '', authorName: it.author || '',
     };
-    // Images preview in-app; everything else runs straight away in the OS handler.
-    if (it.kind === 'image') { setViewer(asMsg); return; }
+    // Images and video play in-app; audio and documents run in the OS handler.
+    if (it.kind === 'image' || it.kind === 'video') { setViewer(asMsg); return; }
     try { await openAttachment(asMsg); }
     catch (e) { Alert.alert('Could not open', e?.message || 'The file could not be opened.'); }
   };

@@ -8,6 +8,10 @@ $o369-accent-deep: var(--o369-accent-deep, #E85D1B);
 $o369-grey: var(--o369-grey, #98A2AC);
 $o369-wall: var(--o369-wall, #EEF3F8);
 $o369-line: var(--o369-line, #E6EDF5);
+// Presence / "on" states. Not theme-switched: green means online in every accent,
+// the same way it does in the app palette.
+$o369-green: #12B76A;
+$o369-green-deep: #0E8F53;
 
 .o369 {
     // ---- theme variables (defaults = Ocean / 369 brand) ----
@@ -155,7 +159,7 @@ $o369-line: var(--o369-line, #E6EDF5);
     .o369-rsub { font-size: 12px; color: $o369-grey; }
 
     .o369-pinbar {
-        display: flex; align-items: center; gap: 4px; background: var(--o369-panel)7ef; border-bottom: 1px solid #f3ddc4;
+        display: flex; align-items: center; gap: 4px; background: #fff7ef; border-bottom: 1px solid #f3ddc4;
         padding: 6px 14px; color: #7a4c1e; font-size: 12.5px; z-index: 1;
         .fa-thumb-tack { color: $o369-accent; }
         .o369-pinbartxt { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -257,7 +261,7 @@ $o369-line: var(--o369-line, #E6EDF5);
     .o369-gmconnect { border: 1px solid $o369-line; background: var(--o369-panel); color: $o369-brand; border-radius: 10px; padding: 11px;
         font-weight: 700; font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;
         &:hover { background: $o369-wall; } .fa { color: #ea4335; } }
-    .o369-gmhelp { margin-top: 18px; border: 1px solid #f2d98c; background: var(--o369-panel)9e8; border-radius: 12px; overflow: hidden; }
+    .o369-gmhelp { margin-top: 18px; border: 1px solid #f2d98c; background: #fff9e8; border-radius: 12px; overflow: hidden; }
     .o369-gmhelp-head { width: 100%; display: flex; align-items: center; justify-content: space-between;
         background: #fbeeb8; border: none; padding: 11px 14px; cursor: pointer; font-weight: 700; font-size: 13px; color: #8a6d1a; }
     .o369-gmhelp-body { padding: 4px 16px 14px;
@@ -315,7 +319,7 @@ $o369-line: var(--o369-line, #E6EDF5);
     /* ---- Admin oversight / monitor (#10) ---- */
     .o369-chipmenu-admin { color: #b45309; .fa { color: #b45309; } }
     .o369-monitorbar { display: flex; align-items: center; gap: 8px; padding: 12px 16px;
-        background: var(--o369-panel)7ed; border-top: 1px solid #fed7aa; color: #b45309; font-size: 12.5px; font-weight: 600;
+        background: #fff7ed; border-top: 1px solid #fed7aa; color: #b45309; font-size: 12.5px; font-weight: 600;
         .fa { font-size: 14px; } }
     /* ---- @mention picker + highlight (#6) ---- */
     .o369-mentionbox { margin: 0 10px 6px; background: var(--o369-panel); border: 1px solid $o369-line; border-radius: 12px;
@@ -413,7 +417,7 @@ $o369-line: var(--o369-line, #E6EDF5);
     .o369-invitecopy { flex: 0 0 auto; border: none; background: $o369-brand; color: #fff; border-radius: 8px;
         padding: 8px 12px; cursor: pointer; &:hover { background: $o369-brand-deep; } }
     .o369-inviteredo { margin-top: 12px; width: 100%; border: 1px solid $o369-line; background: var(--o369-panel);
-        color: $o369-accent-deep; border-radius: 8px; padding: 8px; cursor: pointer; &:hover { background: var(--o369-panel)3ec; } }
+        color: $o369-accent-deep; border-radius: 8px; padding: 8px; cursor: pointer; &:hover { background: #fff3ec; } }
 
     .o369-replybar {
         display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: var(--o369-panel); border-top: 1px solid $o369-line;
@@ -610,8 +614,14 @@ $o369-line: var(--o369-line, #E6EDF5);
     .o369-avatarbig { width: 120px; height: 120px; font-size: 44px; }
     .o369-drawername { font-size: 19px; font-weight: 700; color: var(--o369-text); }
     .o369-drawersub { font-size: 13px; color: $o369-grey; }
+    .o369-drawerpresence { font-size: 12.5px; color: var(--o369-text2); font-weight: 600;
+        &.o369-presence-on { color: $o369-green-deep; font-weight: 700; } }
     .o369-drawersection { padding: 12px 16px; border-bottom: 8px solid var(--o369-field); }
-    .o369-secttitle { font-size: 12px; color: $o369-accent; font-weight: 700; margin-bottom: 8px; }
+    /* Neutral, not the brand accent: an accent heading reads as a branded settings
+       list rather than a contact card. */
+    .o369-secttitle { font-size: 12px; color: var(--o369-text2); font-weight: 700; margin-bottom: 8px;
+        letter-spacing: .4px; text-transform: uppercase; }
+    .o369-abouttext { font-size: 14px; color: var(--o369-text); line-height: 1.45; }
     .o369-nickrow { display: flex; gap: 8px; }
     .o369-nickinput { flex: 1; border: 1px solid $o369-line; border-radius: 8px; padding: 8px 10px; outline: none; font-size: 14px; }
     .o369-savebtn { border: none; background: $o369-accent; color: #fff; border-radius: 8px; padding: 8px 14px; cursor: pointer; font-weight: 700; &:hover { background: $o369-accent-deep; } }
@@ -886,8 +896,8 @@ $o369-line: var(--o369-line, #E6EDF5);
 }
 
 /* ---------- Group info redesign · media viewer · permissions (Features 2-4) ---------- */
-$o369-green: #12B76A;
-$o369-green-deep: #0E8F53;
+/* $o369-green / $o369-green-deep are declared with the other tokens at the top —
+   the drawer's presence line needs them earlier in the file than this block. */
 
 .o369 {
     /* Feature 2 — avatar camera badge + name pencil + round action buttons */
@@ -949,6 +959,17 @@ $o369-green-deep: #0E8F53;
     }
     .o369-monthhdr { padding: 12px 16px 6px; font-size: 12px; font-weight: 700; color: $o369-grey; text-transform: uppercase; letter-spacing: .04em; }
     .o369-mediagrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 0 6px 6px; }
+    /* Preview strip in the main info view — 4 up, same square cells as the grid,
+       and the whole strip is the same "show all" target as the row above it. */
+    .o369-mediastrip {
+        display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; margin-top: 10px; cursor: pointer;
+        > div { position: relative; aspect-ratio: 1 / 1; background: $o369-wall; border-radius: 4px; overflow: hidden; }
+        img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    }
+    .o369-stripicon {
+        width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+        color: $o369-brand; font-size: 20px;
+    }
     .o369-mediacell {
         position: relative; aspect-ratio: 1 / 1; background: $o369-wall; border-radius: 4px; overflow: hidden;
         img { width: 100%; height: 100%; object-fit: cover; cursor: pointer; display: block; }

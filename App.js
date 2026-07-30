@@ -128,6 +128,9 @@ function AppInner() {
   // Google Meet settings is reachable from two places; remember which, so back
   // returns where the user came from rather than always to Chat settings.
   const [gmeetFrom, setGmeetFrom] = useState('chatsettings');
+  // Same idea for the media gallery: it opens from the thread ⋮ and from contact
+  // info, and back must not skip the info screen on the way out.
+  const [mediaFrom, setMediaFrom] = useState('chat');
   // A quote carried from a group into a 1:1 by 'Reply privately'. Consumed by the
   // thread on mount, then cleared so revisiting the chat doesn't re-seed it.
   const [pendingQuote, setPendingQuote] = useState(null);
@@ -187,7 +190,12 @@ function AppInner() {
     if (!userRef.current) { pendingTapRef.current = data; return; }
 
     const chatId = Number(data.chat_id || 0);
-    if (chatId) {
+    // 'chat_call' has no ringing UI to open yet — the app cannot place or answer
+    // calls — so the chat is the only useful destination. It is called out
+    // separately from a plain message so the branch is deliberate rather than a
+    // side effect of chat_id happening to be set.
+    if (chatId && (data.event === 'chat_call' || data.event === 'chat_message'
+      || data.event === 'chat_mention' || !data.event)) {
       // Title is unknown here; the thread fetches the real conversation on mount.
       setActiveChat({ id: chatId, title: data.title || 'Chat' });
       setFocusId(null);
@@ -264,7 +272,10 @@ function AppInner() {
       // jumping to the root — otherwise leaving a thread exits the whole chat area.
       if (user && appScreen === 'groupmanage') { setAppScreen('chatinfo'); return true; }
       if (user && appScreen === 'chatinfo') { setAppScreen('chat'); return true; }
-      if (user && ['chatsearch', 'chatmedia', 'starred'].includes(appScreen)) {
+      if (user && appScreen === 'chatmedia') {
+        setAppScreen(activeChat ? (mediaFrom || 'chat') : 'chats'); return true;
+      }
+      if (user && ['chatsearch', 'starred'].includes(appScreen)) {
         setAppScreen(activeChat ? 'chat' : 'chats'); return true;
       }
       if (user && appScreen === 'chatsettings') { setAppScreen('chats'); return true; }
@@ -285,7 +296,7 @@ function AppInner() {
     };
     const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
     return () => sub.remove();
-  }, [user, appScreen, screen, forceSetup, activeChat, gmeetFrom]);
+  }, [user, appScreen, screen, forceSetup, activeChat, gmeetFrom, mediaFrom]);
 
   // Register this device for push once logged in (needs the session cookie so
   // the token binds to the right user server-side).
@@ -418,7 +429,7 @@ function AppInner() {
             onBack={() => { setActiveChat(null); setFocusId(null); setPendingQuote(null); setAppScreen('chats'); }}
             onOpenInfo={() => setAppScreen('chatinfo')}
             onOpenSearch={() => setAppScreen('chatsearch')}
-            onOpenMedia={() => setAppScreen('chatmedia')}
+            onOpenMedia={() => { setMediaFrom('chat'); setAppScreen('chatmedia'); }}
             onOpenStarred={() => setAppScreen('starred')}
             onOpenGmeet={() => { setGmeetFrom('chat'); setAppScreen('gmeetsettings'); }}
             initialQuote={pendingQuote}
@@ -435,6 +446,10 @@ function AppInner() {
             conversation={activeChat}
             onBack={() => setAppScreen('chat')}
             onManageGroup={() => setAppScreen('groupmanage')}
+            // Media opens the same gallery the thread ⋮ uses; mediaFrom sends back
+            // here rather than past this screen to the thread.
+            onOpenMedia={() => { setMediaFrom('chatinfo'); setAppScreen('chatmedia'); }}
+            onOpenGmeet={() => { setGmeetFrom('chatinfo'); setAppScreen('gmeetsettings'); }}
             // Messaging a group member switches the open thread to that 1:1.
             onOpenChat={(conv) => { setActiveChat(conv); setFocusId(null); setAppScreen('chat'); }}
             // Left/deleted → the thread is gone, so return to the list.
@@ -461,7 +476,12 @@ function AppInner() {
           />
         );
       if (appScreen === 'chatmedia')
-        return <ChatMediaScreen conversation={activeChat} onBack={() => setAppScreen(activeChat ? 'chat' : 'chats')} />;
+        return (
+          <ChatMediaScreen
+            conversation={activeChat}
+            onBack={() => setAppScreen(activeChat ? (mediaFrom || 'chat') : 'chats')}
+          />
+        );
       if (appScreen === 'starred')
         return <StarredScreen onBack={() => setAppScreen(activeChat ? 'chat' : 'chats')} onOpenChat={() => setAppScreen('chats')} />;
       if (appScreen === 'chatsettings')
