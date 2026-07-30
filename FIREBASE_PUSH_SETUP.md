@@ -40,18 +40,23 @@ If either one is missing, notifications do not work.
 
 1. Go to **https://console.firebase.google.com** and sign in with a Google account.
 2. Click **Add project**, give it a name, and create it (Analytics can be skipped).
-   - Our project is named **`kra-kpi-3efd5`**.
+   - Our project is named **`kra-kpi-3efd5`** — that is the *Firebase* project id and it was
+     never renamed, so it keeps the old name even though the app is now 369Chats. Do not
+     "fix" it: renaming the Firebase project would invalidate `google-services.json`.
 3. Inside the project, click the **Android** icon ("Add app → Android").
 4. For the **Android package name**, enter exactly:
    ```
-   com.alphalize.krakpi
+   com.alphalize.chats369
    ```
    (This must match the `package` in `app.json`, or Firebase registration fails.)
 5. Click **Register app**, then **Download `google-services.json`**.
 6. Place that file in the project root:
    ```
-   C:\Users\sriba\OneDrive\Desktop\KRA_KPI\google-services.json
+   C:\Projects\369Chats\google-services.json
    ```
+   The committed file deliberately contains **two** Android clients —
+   `com.alphalize.chats369` (current) and `com.alphalize.krakpi` (the pre-rename package).
+   Keeping the old one costs nothing and stops an older installed build from breaking.
 
 ### Part 2 — Get the private key (for sending)
 
@@ -157,7 +162,7 @@ If either one is missing, notifications do not work.
   (upload the FCM V1 key again) for the new project, then rebuild.
 
 - **Package name mismatch**
-  The Android app in Firebase must use `com.alphalize.krakpi`, exactly matching `app.json`,
+  The Android app in Firebase must use `com.alphalize.chats369`, exactly matching `app.json`,
   or the phone cannot register with FCM.
 
 ---

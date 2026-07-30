@@ -1,8 +1,8 @@
 {
   "expo": {
     "name": "369Chats",
-    "//": "slug stays kra-kpi-app ON PURPOSE. With no explicit `scheme`, the dev-client deep link is exp+<slug>, and the EAS projectId below is registered under this slug. Changing it breaks QR-scanning into the already-installed dev build and makes eas reject the project. Rename it only together with a fresh dev-client build.",
-    "slug": "kra-kpi-app",
+    "//": "This app is 369Chats. Do NOT 'correct' the package to com.alphalize.369chats — an Android package segment is a Java identifier and may not start with a digit, so the package is chats369 while the slug is 369chats. Changing either one requires a matching Android client in google-services.json and a fresh dev-client build (the deep link is exp+<slug>).",
+    "slug": "369chats",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon369.png",
@@ -13,7 +13,7 @@
       "ios"
     ],
     "android": {
-      "package": "com.alphalize.krakpi",
+      "package": "com.alphalize.chats369",
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.SCHEDULE_EXACT_ALARM",
@@ -33,7 +33,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.alphalize.krakpi"
+      "bundleIdentifier": "com.alphalize.chats369"
     },
     "plugins": [
       "./plugins/withAlarmLockScreen",
@@ -72,11 +72,6 @@
       "expo-audio",
       "expo-video"
     ],
-    "extra": {
-      "eas": {
-        "projectId": "0a997e07-b838-4445-b1e9-2d381c617135"
-      }
-    },
-    "owner": "jicol"
+    "//eas": "There is deliberately no projectId or owner here — the previous ones belonged to another account and another slug, and EAS rejected them. Run `npx eas init` while logged into an account you control to mint a fresh project, then `eas credentials` to re-upload the FCM V1 service-account key, which is stored per EAS project (see FIREBASE_PUSH_SETUP.md)."
   }
 }
