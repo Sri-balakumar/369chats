@@ -26,10 +26,14 @@ before calling it done. Where a rule is enforceable server-side (windows, permis
 3. **Edge-to-edge is on.** `KeyboardAvoidingView` does nothing on Android. Use
    `utils/useKeyboardHeight.js` and pad by `kb > 0 ? kb + insets.bottom : insets.bottom`.
 
-4. **Realtime is POLLING, not the bus.** `services/chatRealtime.js` polls every 3s (thread) / 6s
-   (list) and **stops when backgrounded**. It handles only `message` / `update` / `conversations`.
-   The Odoo bus needs the session cookie, which RN JS cannot read without a native cookie module.
-   *This is the single biggest blocker for calling — see below.*
+4. **Realtime is now bus + polling, and BOTH matter.** `services/odooBus.js` is a real websocket
+   subscription (the native cookie module arrived with the calling work). `services/chatRealtime.js`
+   still polls every 3s (thread) / 6s (list) alongside it and **stops when backgrounded**. Keep both:
+   the bus is best-effort and a dropped socket on a phone is routine, so polling is the safety net —
+   the OWL web client does exactly the same. Poll cadence was deliberately NOT slowed yet, so a bus
+   bug shows up as "slightly late" rather than "silently broken".
+   Call events (`call_ring` / `call_accept` / `call_signal` / …) exist **only** on the bus — no
+   amount of polling will ever surface them.
 
 5. **Odoo returns `false`, never `null`.** Normalised in `services/chat.js`. Failures come back HTTP
    200 as `{status: false, message: '...'}` — the key is `message`, not `error`.
@@ -54,31 +58,51 @@ before calling it done. Where a rule is enforceable server-side (windows, permis
 
 ## Deploying the Odoo module — verified working
 
-Odoo 19 runs as service `odoo-server-19.0`; DB `369application`. **The Claude Code shell is
-elevated**, so this can be run directly — no need to ask for an admin CMD.
+Odoo 19 runs as service `odoo-server-19.0`. **The Claude Code shell is elevated**, so this can be
+run directly — no need to ask for an admin CMD.
+
+> **The database is `sales_test`, NOT `369application`.** This was wrong in earlier versions of this
+> file and cost a session. `chats_369` is `installed` in `sales_test` (17 `chat_*` tables, all 11
+> `ir.rule` records); in `369application` it is `uninstalled` with no chat tables at all. That
+> matters because **`-u` on an uninstalled module is a silent no-op that still exits 0** — the very
+> signal this section tells you to trust. Confirm before believing a deploy:
+> ```sql
+> SELECT name, state FROM ir_module_module WHERE name = 'chats_369';
+> ```
+> psql lives at `C:\Program Files\Odoo 19.0.20260119\postgresql\bin\psql.exe`, credentials
+> `openpg` / `openpgpwd` (from `server\odoo.conf`).
 
 ```powershell
 Stop-Service -Name 'odoo-server-19.0' -Force
 robocopy "C:\Projects\369Chats\odoo_modules\chats_369" "C:\Program Files\Odoo 19.0.20260119\server\odoo\addons\chats_369" /MIR /NFL /NDL /NJH /NJS
-& "C:\Program Files\Odoo 19.0.20260119\python\python.exe" "C:\Program Files\Odoo 19.0.20260119\server\odoo-bin" -c "C:\Program Files\Odoo 19.0.20260119\server\odoo.conf" -d 369application -u chats_369 --stop-after-init
+& "C:\Program Files\Odoo 19.0.20260119\python\python.exe" "C:\Program Files\Odoo 19.0.20260119\server\odoo-bin" -c "C:\Program Files\Odoo 19.0.20260119\server\odoo.conf" -d sales_test -u chats_369 --stop-after-init
 Start-Service -Name 'odoo-server-19.0'
 ```
-robocopy 0–7 = success (3 = copied + extras removed); **8+ = stop**. odoo-bin exit 0 is the real
-signal. Then **Ctrl+Shift+R** — Odoo serves compiled bundles. Syntax-check first:
-`python -m py_compile` for controllers, `node --input-type=module --check` for `chat_app.js`.
+robocopy 0–7 = success (3 = copied + extras removed); **8+ = stop**. odoo-bin exit 0 is necessary
+but NOT sufficient — see the box above. Then **Ctrl+Shift+R** — Odoo serves compiled bundles.
+Syntax-check first: `python -m py_compile` for controllers,
+`node --input-type=module --check` for `chat_app.js`.
+
+**Currently undeployed:** `chat_api.py`, `chat_app.js` and `chat_app.scss` are committed but differ
+from the addons copy (media-list `mimetype`, presence/`about` on contact info).
 
 To check whether a deploy is even needed: `diff -rq <source> <addons copy>`.
 
 ## Verification
 
 ```bash
-npx jest                                     # 89 passing
+npx jest                                     # 90 passing
 npx expo export --platform android --clear   # catches unresolved imports
 ```
 Test files: `__tests__/theme.test.js`, `__tests__/themeStatic.test.js`,
 `components/ui/__tests__/{ui,modules}.test.js`, `screens/__tests__/screens.render.test.js`.
 **Add every new screen/component to `modules.test.js`.** The render test catches
 "Property 'X' doesn't exist" errors that `expo export` does not.
+
+Native modules have no JS off-device, so anything importing one needs a mock in `jest.setup.js`
+or the suite fails at import — `react-native-webrtc` and `@react-native-cookies/cookies` are
+mocked there. Those fakes are only enough to *construct*: real call negotiation needs two peers
+and a media stack, so it is a device test, never a jest one.
 
 ---
 
@@ -105,22 +129,43 @@ and honours the kill-switch + per-user prefs; trigger word no longer posted as a
 
 ---
 
-## CALLING — not working, and why
+## CALLING — written, NOT yet confirmed on a device
 
-The web client has **complete working WebRTC** (browser↔browser calls work today, subject to NAT).
-The app has a read-only Calls tab plus scheduling. Of nine `/chat/call/*` routes the app calls two.
+The server side was always complete and is unchanged. The app side is now written:
 
-Four things are needed, in this order:
+| | |
+|---|---|
+| `services/odooBus.js` | websocket bus client (cookie → `/chat/bus_channel` → `/websocket`) |
+| `services/callEngine.js` | WebRTC lifecycle, ported from the web client |
+| `services/chat.js` | the six `/chat/call/*` signalling wrappers |
+| `screens/CallScreen.js` | incoming / in-call overlay, mounted in `App.js` |
+| `ChatThreadScreen` header | voice + video buttons, gated like the web `canCall()` |
 
-1. **A native build** — `react-native-webrtc` is not installed and cannot be added by reloading.
-2. **A bus client** — `@react-native-cookies/cookies` so JS can read the session cookie, then a real
-   bus subscription. **Without this a call cannot ring** (see gotcha 4). This is not optional.
-3. **A TURN server** — `_ice_servers()` returns Google STUN only; `chats_369.turn_url` /
+**This needs a NEW BUILD to run at all** — `react-native-webrtc` is native code (libwebrtc), so
+the existing APK cannot execute any of it. The APK at `C:\Projects\Alphalize APK's\369Chats\`
+predates this work: verified as `com.alphalize.chats369` with 64 native libs and **zero** WebRTC
+ones.
+
+Two things remain outside the code:
+
+1. **A TURN server** — `_ice_servers()` returns Google STUN only; `chats_369.turn_url` /
    `turn_user` / `turn_cred` are unset and there is **no admin UI for them** (Google Meet has one,
-   calls have nothing). Calls will work on one wifi and fail on mobile data until this exists.
-4. **Then** port the web implementation (offer/answer ordering, trickle ICE with buffering,
-   busy-reject, teardown) and build an incoming-call screen.
+   calls have nothing). Calls will work on one wifi and **fail on mobile data** until this exists.
+   Expect that failure; it is not a bug in the port.
+2. **Device verification.** Nothing below has been seen working on hardware.
 
+**Verify in this order — each step is worthless if the previous one failed:**
+
+1. **The bus, before any call.** Log in, send a message from the web client, and confirm it appears
+   in the app instantly rather than on the next 3s poll. If it does not, the cookie handshake failed
+   and no call can ring. `adb logcat` and look for the `Bus` logger — it warns explicitly on
+   `no session_id cookie`.
+2. **App ↔ web on one wifi.** The web client is the known-good peer, so a failure here is the app's.
+3. **App ↔ app**, then across networks (expect failure until TURN).
+
+Known gaps, deliberate: no speaker/earpiece toggle (needs another native module, and the test
+tablet has no earpiece anyway); the incoming push is an ordinary Expo banner, not a VoIP push, so
+it **cannot wake a killed app into a ringing UI** — ringing works while the app is running.
 iOS additionally needs PushKit/CallKit, which is absent.
 
 ## App identity — renamed off kra-kpi

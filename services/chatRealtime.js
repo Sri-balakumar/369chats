@@ -1,32 +1,38 @@
 // Realtime engine for the chat screens.
 //
-// WHY POLLING AND NOT THE WEBSOCKET
-// ---------------------------------
+// TWO TRANSPORTS, ONE CONTRACT
+// ----------------------------
 // The server broadcasts on Odoo's bus: one notification type, 'chat369.event',
 // carrying {event, conversation_id, ...} on a private per-user channel from
-// /chat/bus_channel. Odoo 17+ delivers that over a websocket at /websocket
-// (/longpolling/poll was removed in 16), and React Native does ship a global
-// WebSocket — so this looks like it should be a websocket client.
+// /chat/bus_channel. `services/odooBus.js` now subscribes to that websocket for
+// real — the native cookie module needed for its handshake arrived with the
+// calling work.
 //
-// The blocker is auth. The websocket handshake is authenticated by the Odoo
-// session cookie, and in React Native that cookie lives in the platform cookie
-// store: axios sends it automatically via withCredentials, but JS cannot READ it,
-// and RN's WebSocket does not share that store. Passing it explicitly needs a
-// native cookie module (@react-native-cookies/cookies) and therefore a new dev
-// build — which is exactly the dependency this project is trying to avoid until
-// the calling phase.
+// Polling did NOT go away, and should not. The reference OWL web client keeps its
+// own 6s tick alongside the bus for the same reason: the bus is best-effort, and a
+// dropped socket on a phone is routine. So:
 //
-// So this engine polls, which is what the reference OWL web client does anyway as
-// its own safety net (a 6s /chat/conversations tick alongside the bus, because
-// the bus is best-effort). Polling is strictly more reliable here, just less
-// instant. The subscribe/dispatch shape below is deliberately the same one a bus
-// client would use, so swapping in a websocket later means replacing the
-// _tick loop and nothing else.
+//   bus     — instant, but only while connected
+//   polling — a few seconds late, but always eventually right
+//
+// Both feed the SAME subscribe/emit contract below, so screen code cannot tell
+// which one delivered an event and does not care. Duplicates are harmless: the
+// screens replace messages by id.
+//
+// (Deliberately NOT done yet: slowing the poll while the bus is connected. It is
+// the obvious battery win, but the bus is new and unverified on a device — keeping
+// the poll at full rate means a bus bug shows up as "slightly late" rather than
+// "silently broken". Revisit once calls are confirmed working on hardware.)
+//
+// Note the call events (call_ring / call_accept / call_signal / …) do NOT flow
+// through here — `services/callEngine.js` subscribes to the bus directly, since
+// they are not conversation-thread events.
 //
 // Cadence is adaptive: the open thread is polled hard, the chat list gently, and
 // everything stops when the app is backgrounded.
 import { AppState } from 'react-native';
 import * as chat from './chat';
+import bus from './odooBus';
 import { createLogger } from '../api/logger';
 
 const log = createLogger('ChatRT');
@@ -57,6 +63,8 @@ class ChatRealtime {
     this.appSub = null;
     this.inFlight = false;       // a slow poll must not stack up behind itself
     this.sinceRefetch = 0;       // ticks since the last update-catching refetch
+    this.busSub = null;
+    this.listNudge = null;       // debounce for bus-triggered list refreshes
   }
 
   // Screens subscribe with a callback and get an unsubscribe fn back. Events use
@@ -82,6 +90,7 @@ class ChatRealtime {
     log.info('realtime started');
     this._loopList();
     this._loopHeartbeat();
+    this._startBus();
     // Stop burning battery and requests while backgrounded; resync on return.
     this.appSub = AppState.addEventListener('change', (state) => {
       if (state === 'active') { this._tickList(); this._tickThread(); }
@@ -91,9 +100,47 @@ class ChatRealtime {
   stop() {
     this.running = false;
     clearTimeout(this.timer); clearTimeout(this.listTimer); clearInterval(this.heartTimer);
-    this.timer = this.listTimer = this.heartTimer = null;
+    clearTimeout(this.listNudge);
+    this.timer = this.listTimer = this.heartTimer = this.listNudge = null;
     if (this.appSub) { this.appSub.remove(); this.appSub = null; }
+    if (this.busSub) { this.busSub(); this.busSub = null; }
+    bus.stop();
     log.info('realtime stopped');
+  }
+
+  // ── bus bridge ─────────────────────────────────────────────────────────────
+
+  // Forward the two thread events onto the existing contract. Everything else the
+  // bus carries (receipts, typing, calls) is either already covered by the poll's
+  // refetch window or consumed directly by callEngine, so it is ignored here
+  // rather than invented into an event shape no screen listens for.
+  _startBus() {
+    this.busSub = bus.subscribe((event, payload) => {
+      if (event !== 'message' && event !== 'update') return;
+      const conversationId = Number(payload?.conversation_id) || 0;
+      const message = payload?.message;
+      if (!conversationId || !message) return;
+
+      if (event === 'message') {
+        // Keep the poll cursor in step, or the next tick re-delivers this same
+        // message and the thread shows it twice before dedupe settles.
+        if (conversationId === this.activeConversationId) this.noteMessageId(message.id);
+        this._nudgeList();
+      }
+      this.emit(event, { conversationId, message });
+    });
+    bus.start();
+  }
+
+  // A new message changes the chat list too (preview, unread badge, order). Refresh
+  // it, but debounced — a burst of messages should cost one /chat/conversations,
+  // not one per message.
+  _nudgeList() {
+    if (this.listNudge) return;
+    this.listNudge = setTimeout(() => {
+      this.listNudge = null;
+      if (this.running) this._tickList();
+    }, 400);
   }
 
   // Called by the thread screen when it opens/closes a conversation. lastId seeds

@@ -24,7 +24,8 @@
         "android.permission.VIBRATE",
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.RECORD_AUDIO",
-        "android.permission.CAMERA"
+        "android.permission.CAMERA",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
@@ -70,8 +71,20 @@
         }
       ],
       "expo-audio",
-      "expo-video"
+      "expo-video",
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to use the camera for video calls.",
+          "microphonePermission": "Allow $(PRODUCT_NAME) to use the microphone for calls."
+        }
+      ]
     ],
-    "//eas": "There is deliberately no projectId or owner here — the previous ones belonged to another account and another slug, and EAS rejected them. Run `npx eas init` while logged into an account you control to mint a fresh project, then `eas credentials` to re-upload the FCM V1 service-account key, which is stored per EAS project (see FIREBASE_PUSH_SETUP.md)."
+    "//eas": "projectId below was minted by `eas init` on an account we control, replacing one that belonged to another owner under the old slug. There is intentionally no `owner` key — EAS infers it from the logged-in account, and hardcoding it is what blocked builds before. The FCM V1 service-account key is stored PER EAS PROJECT, so if this id ever changes again, push silently stops until `eas credentials` re-uploads it (see FIREBASE_PUSH_SETUP.md).",
+    "extra": {
+      "eas": {
+        "projectId": "358dbe62-f1df-4048-990b-77eef9f1f672"
+      }
+    }
   }
 }

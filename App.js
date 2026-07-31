@@ -26,6 +26,7 @@ import ChatThreadScreen from './screens/ChatThreadScreen';
 import NewChatScreen from './screens/NewChatScreen';
 import ContactInfoScreen from './screens/ContactInfoScreen';
 import CallsScreen from './screens/CallsScreen';
+import CallScreen from './screens/CallScreen';
 import BottomTabs from './components/chat/BottomTabs';
 import ChatSearchScreen from './screens/ChatSearchScreen';
 import ChatMediaScreen from './screens/ChatMediaScreen';
@@ -53,6 +54,7 @@ import * as session from './api/session';
 import { createLogger } from './api/logger';
 import { registerForPushAsync, unregisterPush } from './services/push';
 import realtime from './services/chatRealtime';
+import callEngine from './services/callEngine';
 import { loadDrafts } from './services/drafts';
 
 const log = createLogger('App');
@@ -176,6 +178,15 @@ function AppInner() {
     });
   }, [user?.uid]);
 
+  // Bind the call engine to the bus as soon as there is a session. It has to live
+  // here rather than on a screen: an incoming call must ring wherever the user is,
+  // including on screens that know nothing about chat.
+  useEffect(() => {
+    if (!user) return undefined;
+    callEngine.start();
+    return () => callEngine.stop();
+  }, [user?.uid]);
+
   // Route a notification tap to a screen, focusing the record it names.
   //
   // A cold-start tap can land before the session is restored, so it queues in a
@@ -190,10 +201,13 @@ function AppInner() {
     if (!userRef.current) { pendingTapRef.current = data; return; }
 
     const chatId = Number(data.chat_id || 0);
-    // 'chat_call' has no ringing UI to open yet — the app cannot place or answer
-    // calls — so the chat is the only useful destination. It is called out
-    // separately from a plain message so the branch is deliberate rather than a
-    // side effect of chat_id happening to be set.
+    // 'chat_call' still routes to the THREAD, not to the call UI, and that is
+    // deliberate. The ring itself arrives over the bus and CallScreen puts itself
+    // on top the moment it does — the push is only a banner (see _push_call in
+    // chat_api.py: it is an ordinary Expo alert, not a VoIP push, so it cannot
+    // wake a killed app into a ringing state). By the time a tap is processed the
+    // call is either already ringing on screen or long gone, and the chat is the
+    // one destination that is useful in both cases.
     if (chatId && (data.event === 'chat_call' || data.event === 'chat_message'
       || data.event === 'chat_mention' || !data.event)) {
       // Title is unknown here; the thread fetches the real conversation on mount.
@@ -385,6 +399,7 @@ function AppInner() {
     // Stop the chat polling loops before the session goes — otherwise they keep
     // firing requests that now 401 and log noise all the way to the login screen.
     realtime.stop();
+    callEngine.stop();
     await session.clearSession();
     setUser(null);
     setScreen('login');
@@ -579,6 +594,9 @@ function AppInner() {
             counts={{ chats: chatUnread }}
           />
         )}
+        {/* Last sibling and outside ScreenTransition: a call covers the whole app
+            and must not be unmounted by a navigation. Renders null when idle. */}
+        <CallScreen />
       </View>
     );
   }

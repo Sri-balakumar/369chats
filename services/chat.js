@@ -814,6 +814,69 @@ export function cancelScheduledCall(id) {
   return call('/chat/call/schedule/cancel', { id: Number(id) });
 }
 
+// ──────────────────────────── live calls (WebRTC) ────────────────────────────
+//
+// Signalling transport only — the media path is `services/callEngine.js`. Every
+// route below just relays to the other party over the bus, so a response of
+// {status:true} means "handed to the server", NOT "the peer received it".
+//
+// Two server rules worth knowing, because both return status:false and `call()`
+// turns those into a thrown ChatError:
+//   * calls are 1:1 — a group conversation_id is rejected outright;
+//   * every route except /ice requires a non-empty call_id, which is the only
+//     thing binding a relayed payload to a call the peer actually started.
+
+// ICE servers for a call. conversation_id is REQUIRED to get TURN: the server
+// releases TURN credentials only to a member of that chat, and returns bare STUN
+// otherwise. Passing 0 is therefore valid but yields a config that fails across
+// NAT — always pass the real conversation.
+export async function fetchIceServers(conversationId) {
+  const res = await call('/chat/call/ice', { conversation_id: Number(conversationId) || 0 }, 10000);
+  return res.ice || [];
+}
+
+// Ring the other member. Returns the server-minted call_id that every subsequent
+// signalling call must echo back, plus the ICE config (saving a second round trip).
+export async function startCall(conversationId, video = false) {
+  const res = await call('/chat/call/start', {
+    conversation_id: Number(conversationId), video: !!video,
+  }, 15000);
+  return { callId: res.call_id || null, ice: res.ice || [] };
+}
+
+export function acceptCall(conversationId, callId) {
+  return call('/chat/call/accept', { conversation_id: Number(conversationId), call_id: String(callId || '') });
+}
+
+export function rejectCall(conversationId, callId) {
+  return call('/chat/call/reject', { conversation_id: Number(conversationId), call_id: String(callId || '') });
+}
+
+// `data` is stringified here rather than by callers: the server relays it opaquely
+// and the peer JSON.parses it, so the two sides must agree it is always a string.
+export function sendCallSignal(conversationId, callId, kind, data) {
+  return call('/chat/call/signal', {
+    conversation_id: Number(conversationId),
+    call_id: String(callId || ''),
+    kind: String(kind || ''),
+    data: typeof data === 'string' ? data : JSON.stringify(data),
+  });
+}
+
+// `log` must be true for the CALLER ONLY. The server writes the chat.call history
+// row and the "📞 Call · 0:42" system message from whichever side sets it, so both
+// sides logging produces two of each.
+export function endCall(conversationId, callId, { duration = 0, missed = false, video = false, log = false } = {}) {
+  return call('/chat/call/end', {
+    conversation_id: Number(conversationId),
+    call_id: String(callId || ''),
+    duration: Number(duration) || 0,
+    missed: missed ? 1 : 0,
+    video: video ? 1 : 0,
+    log: log ? 1 : 0,
+  });
+}
+
 // ─────────────────────────────── link preview ───────────────────────────────
 
 // Compose-time preview, so a pasted URL shows a card BEFORE it is sent.

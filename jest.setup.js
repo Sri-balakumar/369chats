@@ -72,6 +72,55 @@ jest.mock('expo-sharing', () => ({
   shareAsync: jest.fn(() => Promise.resolve()),
 }));
 
+// WebRTC is almost entirely native — libwebrtc compiled into the APK. Off-device
+// there is nothing behind these names at all, so importing callEngine or
+// CallScreen would throw at module load without this.
+//
+// The fakes are deliberately just enough to CONSTRUCT: the render test only needs
+// CallScreen to mount, and callEngine's real negotiation logic cannot be
+// meaningfully exercised without two peers and a media stack. Verifying calls is
+// a device job (see HANDOFF.md), not a jest one.
+jest.mock('react-native-webrtc', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  class FakePeerConnection {
+    constructor() { this.remoteDescription = null; this.connectionState = 'new'; }
+    addTrack() {}
+    addEventListener() {}
+    createOffer() { return Promise.resolve({ type: 'offer', sdp: '' }); }
+    createAnswer() { return Promise.resolve({ type: 'answer', sdp: '' }); }
+    setLocalDescription() { return Promise.resolve(); }
+    setRemoteDescription() { return Promise.resolve(); }
+    addIceCandidate() { return Promise.resolve(); }
+    close() {}
+  }
+  return {
+    RTCPeerConnection: FakePeerConnection,
+    RTCIceCandidate: function RTCIceCandidate(x) { return x; },
+    RTCSessionDescription: function RTCSessionDescription(x) { return x; },
+    MediaStream: function MediaStream() { return { getTracks: () => [], toURL: () => '' }; },
+    RTCView: ({ children }) => React.createElement(View, null, children),
+    mediaDevices: {
+      getUserMedia: jest.fn(() => Promise.resolve({
+        getTracks: () => [], getAudioTracks: () => [], getVideoTracks: () => [], toURL: () => '',
+      })),
+    },
+    registerGlobals: jest.fn(),
+  };
+});
+
+// The native cookie jar. Returning {} means odooBus falls through to its "no
+// session_id" warning path, which is the behaviour we want under test — it must
+// not blow up when the cookie is unreadable.
+jest.mock('@react-native-cookies/cookies', () => ({
+  __esModule: true,
+  default: {
+    get: jest.fn(() => Promise.resolve({})),
+    set: jest.fn(() => Promise.resolve(true)),
+    clearAll: jest.fn(() => Promise.resolve(true)),
+  },
+}));
+
 // SVG primitives → inert views, so components that draw art don't need native SVG.
 jest.mock('react-native-svg', () => {
   const React = require('react');

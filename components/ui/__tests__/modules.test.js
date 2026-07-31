@@ -61,6 +61,7 @@ const MODULES = [
   '../../MicrosoftIcon',
   // ── screens ──
   '../../../screens/CallsScreen',
+  '../../../screens/CallScreen',
   '../../../screens/ChatListScreen',
   '../../../screens/ChatThreadScreen',
   '../../../screens/NewChatScreen',

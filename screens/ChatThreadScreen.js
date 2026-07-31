@@ -27,6 +27,7 @@ import VoiceRecorder from '../components/chat/VoiceRecorder';
 import CameraCaptureModal from '../components/CameraCaptureModal';
 import * as chat from '../services/chat';
 import realtime from '../services/chatRealtime';
+import callEngine from '../services/callEngine';
 import { draftFor, setDraft, clearDraft } from '../services/drafts';
 import { copyText } from '../utils/clipboard';
 import useKeyboardHeight from '../utils/useKeyboardHeight';
@@ -194,6 +195,28 @@ export default function ChatThreadScreen({
   useEffect(() => { if (kb > 0) lastKb.current = kb; }, [kb]);
 
   const isGroup = !!conversation?.isGroup;
+
+  // ── placing a call ─────────────────────────────────────────────────────────
+  // Mirrors canCall() in the web client. `oversight` rows are the admin monitor
+  // view — you are watching someone else's chat, not a participant in it.
+  const canCall = !isGroup && !conversation?.oversight && !conversation?.blockedByMe;
+  const [callErr, setCallErr] = useState(null);
+
+  // startCall resolves to an error STRING (or null); it does not throw, because
+  // every failure here is one the user should simply be told about — no mic
+  // permission, already in a call, the server refusing a blocked contact.
+  const placeCall = useCallback(async (video) => {
+    const msg = await callEngine.startCall(
+      {
+        id: convId,
+        title: conversation?.title,
+        avatarUrl: conversation?.avatarUrl,
+        isGroup,
+      },
+      video,
+    );
+    if (msg) setCallErr(msg);
+  }, [convId, conversation?.title, conversation?.avatarUrl, isGroup]);
 
   // ── initial load ───────────────────────────────────────────────────────────
   const load = useCallback(async () => {
@@ -1122,6 +1145,31 @@ export default function ChatThreadScreen({
             </Text>
           </View>
         </TouchableOpacity>
+        {/* Same gate as the web client's canCall(): 1:1 only, not an admin
+            monitor row, not someone you've blocked. The server refuses the rest
+            anyway — this just avoids offering a button that can only fail. */}
+        {canCall && (
+          <>
+            <TouchableOpacity
+              onPress={() => placeCall(true)}
+              hitSlop={{ top: 12, bottom: 12, left: 6, right: 6 }}
+              style={s.iconBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Video call"
+            >
+              <Ionicons name="videocam-outline" size={22} color={COLORS.navy} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => placeCall(false)}
+              hitSlop={{ top: 12, bottom: 12, left: 6, right: 6 }}
+              style={s.iconBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Voice call"
+            >
+              <Ionicons name="call-outline" size={21} color={COLORS.navy} />
+            </TouchableOpacity>
+          </>
+        )}
         <TouchableOpacity
           onPress={() => setMenuOpen(true)}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
@@ -1408,6 +1456,20 @@ export default function ChatThreadScreen({
           },
         }]}
         onCancel={() => setConfirmClear(false)}
+      />
+
+      {/* Why a dialog and not setError(): `error` swaps the whole thread for an
+          EmptyState, which is right for "this chat won't load" and very wrong for
+          "the mic is blocked". */}
+      <ConfirmDialog
+        visible={!!callErr}
+        icon="call-outline"
+        tone="danger"
+        title="Can't start the call"
+        message={callErr || ''}
+        actions={[]}
+        cancelLabel="OK"
+        onCancel={() => setCallErr(null)}
       />
     </Screen>
   );
