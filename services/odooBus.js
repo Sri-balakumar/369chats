@@ -48,6 +48,7 @@ class OdooBus {
     this.listeners = new Set();
     this.ws = null;
     this.channel = null;
+    this.wsUrl = null;           // supplied by /chat/bus_channel (gevent port)
     this.lastId = 0;
     this.running = false;
     this.attempt = 0;
@@ -93,8 +94,10 @@ class OdooBus {
     this.retryTimer = this.openTimer = null;
     if (this.appSub) { this.appSub.remove(); this.appSub = null; }
     this._closeSocket();
-    // Channel is per-session; a new login must re-resolve it.
+    // Channel is per-session; a new login must re-resolve it (and with it the
+    // socket URL, which can differ per server).
     this.channel = null;
+    this.wsUrl = null;
     this.lastId = 0;
     log.info('bus stopped');
   }
@@ -125,9 +128,20 @@ class OdooBus {
         const res = await jsonRpc(serverUrl, '/chat/bus_channel', {}, 10000);
         this.channel = res?.channel || null;
         if (!this.channel) throw new Error('no bus channel returned');
+        // The server tells us where the socket lives — see below for why.
+        this.wsUrl = res?.ws_url || null;
       }
 
-      const wsUrl = serverUrl.replace(/^http/i, 'ws').replace(/\/+$/, '') + '/websocket';
+      // Odoo does NOT serve /websocket on the normal HTTP port. It runs on the
+      // separate *evented* (gevent) process, on `gevent_port` — deriving the URL
+      // from serverUrl gets a 404 forever, which is what silently stopped calls
+      // from ringing. A browser is insulated from this by nginx proxying
+      // /websocket across; the app has no proxy.
+      //
+      // The fallback keeps the old derivation only so a server that predates
+      // ws_url still gets a connection attempt rather than nothing.
+      const wsUrl = this.wsUrl
+        || (serverUrl.replace(/^http/i, 'ws').replace(/\/+$/, '') + '/websocket');
       const headers = await this._authHeaders(serverUrl);
 
       // RN's WebSocket takes (url, protocols, options) and forwards options.headers
@@ -155,7 +169,12 @@ class OdooBus {
 
       ws.onmessage = (ev) => this._onMessage(ev);
 
-      ws.onerror = (e) => log.warn('socket error', e?.message);
+      // RN's WebSocket error event usually has no `message`, so the old
+      // `e?.message` logged a bare "undefined" and told us nothing while the
+      // real fault (a 404 from the wrong port) stayed invisible. Log the URL —
+      // which is the thing most likely to be wrong — and whatever the event
+      // actually carries.
+      ws.onerror = (e) => log.warn('socket error', wsUrl, e?.message || e?.reason || e?.code || '(no detail)');
 
       ws.onclose = () => {
         if (this.ws !== ws) return;             // superseded by a newer socket

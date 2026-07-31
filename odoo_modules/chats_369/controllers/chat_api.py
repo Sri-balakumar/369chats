@@ -1107,8 +1107,28 @@ class Chat369API(http.Controller):
 
     @http.route('/chat/bus_channel', type='json', auth='user', methods=['POST'], csrf=False)
     def chat_bus_channel(self, **params):
-        """The caller's private realtime channel (fetch once, then addChannel it)."""
-        return {'status': True, 'channel': self._user_channel(request.env.user)}
+        """The caller's private realtime channel (fetch once, then addChannel it),
+        plus WHERE to open the websocket.
+
+        `ws_url` is not cosmetic. Odoo does not serve /websocket from the normal
+        HTTP port at all — it lives on the *evented* (gevent) server, a separate
+        process on `gevent_port`, and hitting the normal port returns 404. A
+        browser never notices because the standard deployment puts nginx in front
+        and proxies /websocket across; the RN app has no proxy, so it has to be
+        told the real port or it can never connect. (That 404 is exactly why calls
+        could not ring: every call_* event is bus-only.)
+
+        Sent by the server rather than hardcoded in the client because the port is
+        deployment config, and a client guessing it is a client that breaks the
+        day someone puts a proxy in front."""
+        scheme = 'wss' if request.httprequest.scheme == 'https' else 'ws'
+        host = (request.httprequest.host or '').split(':')[0]
+        port = odoo.tools.config.get('gevent_port') or 8072
+        return {
+            'status': True,
+            'channel': self._user_channel(request.env.user),
+            'ws_url': '%s://%s:%s/websocket' % (scheme, host, port),
+        }
 
     @http.route('/chat/group/invite', type='json', auth='user', methods=['POST'], csrf=False)
     def chat_group_invite(self, **params):
