@@ -53,6 +53,27 @@ before calling it done. Where a rule is enforceable server-side (windows, permis
    pinned messages / 3 pinned chats; pins always carry an expiry (1/7/14/30 days); edit window 15 min
    author-only; **delete-for-everyone 24h author-only**; mute suppresses push only; Google Meet is
    admin-only by default; `/chat/search_all` needs 2+ chars.
+10. **A wildcard peer dep can silently poison the native build.** The 2026-07-31 build crashed on
+   every launch with `NoClassDefFoundError: expo/modules/kotlin/types/AnyTypeCache` inside
+   `AssetModule`. Cause: `expo-audio` declares `expo-asset` as peer `"*"`, npm answered the wildcard
+   with the newest published version — `expo-asset@57`, an **SDK 57** package — and hoisted it to
+   top-level `node_modules`, pushing `expo@54`'s correct `~12.0.13` down into `node_modules/expo/`.
+   Gradle autolinks whatever sits at the **top level**, so the SDK 57 `AssetModule` was compiled
+   against `expo-modules-core@3.0.30`. `expo-modules-core` uses **inline reified** functions, so
+   `AnyTypeCache` is inlined into consumers — which is why the missing class surfaced in
+   `expo-asset` rather than in core, and why RN died building its native module registry before any
+   JS ran (one splash frame, then gone).
+   Fixed by a direct `expo-asset` dependency **plus** an `overrides` block in `package.json` — the
+   direct dep fixes the current tree, the override stops the wildcard re-hoisting 57 on the next
+   `npm install`. **`npx expo-doctor` catches this class of fault in seconds; nothing else does.**
+   Verify a fix with what Gradle actually sees, not what package.json says:
+   `npx expo-modules-autolinking resolve -p android --json`.
+
+11. **Release builds log nothing unless you switch it on.** `api/logger.js` defaults to `__DEV__`,
+   so a production APK is silent — which is why the crash above needed a USB cable. There is now a
+   runtime switch: **Chat settings → Connection → Debug log**, which captures into a ring buffer and
+   shares it as a file, no PC required. `redact()` runs automatically on the way *into* the buffer
+   (it used to be opt-in per call site) precisely because that buffer can leave the device.
 
 ---
 
@@ -91,9 +112,16 @@ To check whether a deploy is even needed: `diff -rq <source> <addons copy>`.
 ## Verification
 
 ```bash
-npx jest                                     # 90 passing
+npx expo-doctor                              # 18/18 — native version drift
+npx jest                                     # 91 passing
 npx expo export --platform android --clear   # catches unresolved imports
 ```
+
+**`expo-doctor` is not optional and jest+export do NOT substitute for it.** Both of those are
+JS-only; neither looks at which *native* module gets autolinked. An `expo-asset` mismatch passed
+both and still crashed every build on launch — see gotcha 10. Keep doctor at 18/18 so a real
+failure is visible; the three React Native Directory exclusions in `package.json` are documented
+there with the reason each is knowingly accepted.
 Test files: `__tests__/theme.test.js`, `__tests__/themeStatic.test.js`,
 `components/ui/__tests__/{ui,modules}.test.js`, `screens/__tests__/screens.render.test.js`.
 **Add every new screen/component to `modules.test.js`.** The render test catches
@@ -144,7 +172,15 @@ The server side was always complete and is unchanged. The app side is now writte
 **This needs a NEW BUILD to run at all** — `react-native-webrtc` is native code (libwebrtc), so
 the existing APK cannot execute any of it. The APK at `C:\Projects\Alphalize APK's\369Chats\`
 predates this work: verified as `com.alphalize.chats369` with 64 native libs and **zero** WebRTC
-ones.
+ones. That same APK also crashes on launch (gotcha 10), so the next build carries both the
+`expo-asset` fix and calling. Confirm before building that autolinking picks up the native modules:
+
+```bash
+npx expo-modules-autolinking resolve -p android --json            # expo-asset must be 12.0.13
+npx expo-modules-autolinking react-native-config -p android --json # webrtc + cookies must be LINKED
+```
+(Community modules like `react-native-webrtc` do **not** appear in the first command — that lists
+Expo modules only. Checking the wrong one makes them look missing when they are fine.)
 
 Two things remain outside the code:
 

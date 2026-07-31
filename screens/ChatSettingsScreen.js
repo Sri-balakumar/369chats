@@ -22,7 +22,7 @@ import CameraCaptureModal from '../components/CameraCaptureModal';
 import * as chat from '../services/chat';
 import { requestOtp, verifyOtp } from '../services/appAuth';
 import { saveSession } from '../api/session';
-import { createLogger } from '../api/logger';
+import { createLogger, isLoggingEnabled } from '../api/logger';
 
 const log = createLogger('ChatSettings');
 
@@ -42,7 +42,10 @@ const ONLINE = [
   { key: 'same', label: 'Same as last seen' },
 ];
 
-export default function ChatSettingsScreen({ user, onBack, onOpenGmeet, onLogout }) {
+export default function ChatSettingsScreen({ user, onBack, onOpenGmeet, onOpenDebugLog, onLogout }) {
+  // Read once on render rather than subscribing: this is a status hint on a row,
+  // and the value can only change on the screen this row opens.
+  const loggingOn = isLoggingEnabled();
   // Edge-to-edge draws under the nav bar; reserve that space at the bottom.
   const insets = useSafeAreaInsets();
   const [me, setMe] = useState(null);
@@ -306,6 +309,16 @@ export default function ChatSettingsScreen({ user, onBack, onOpenGmeet, onLogout
           <Detail label="Database" value={user?.db || '—'} />
           <Detail label="Server" value={user?.serverUrl || '—'} />
           <Detail label="User ID" value={user?.uid != null ? String(user.uid) : '—'} />
+          {/* Release builds log nothing by default, so without this a fault on a
+              real device can only be read over a USB cable. Lives here, next to
+              the server details, because that is what a support conversation is
+              already asking the user to read out. */}
+          <Item
+            icon="bug-outline"
+            label="Debug log"
+            value={loggingOn ? 'Capturing' : 'Off'}
+            onPress={onOpenDebugLog}
+          />
         </View>
 
         {/* Workspace-wide Google Meet setup — same panel the web client has. */}

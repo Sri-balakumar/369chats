@@ -62,6 +62,7 @@ const MODULES = [
   // ── screens ──
   '../../../screens/CallsScreen',
   '../../../screens/CallScreen',
+  '../../../screens/DebugLogScreen',
   '../../../screens/ChatListScreen',
   '../../../screens/ChatThreadScreen',
   '../../../screens/NewChatScreen',

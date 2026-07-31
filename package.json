@@ -10,6 +10,7 @@
     "@react-native-cookies/cookies": "^6.2.1",
     "axios": "^1.18.1",
     "expo": "~54.0.36",
+    "expo-asset": "~12.0.13",
     "expo-audio": "~1.1.1",
     "expo-blur": "~15.0.8",
     "expo-camera": "~17.0.10",
@@ -48,6 +49,22 @@
     "jest": "^29.7.0",
     "jest-expo": "~54.0.0",
     "react-test-renderer": "^19.1.0"
+  },
+  "//expo-doctor": "These three are KNOWINGLY accepted, not ignored. All are flagged only against the New Architecture, which this app does not use (app.json sets newArchEnabled: false). @react-native-cookies/cookies is also deprecated upstream — it is here solely so JS can read the Odoo session cookie for the websocket handshake (services/odooBus.js); if the app ever moves to the New Architecture it must be swapped for react-native-nitro-cookies or @preeternal/react-native-cookie-manager, and calling will stop ringing until it is. @notifee/react-native is unmaintained but is the only thing providing the full-screen alarm intent. They are excluded so expo-doctor stays a MEANINGFUL gate — it is what would have caught the expo-asset mismatch below, and a check that always fails gets ignored.",
+  "expo": {
+    "doctor": {
+      "reactNativeDirectoryCheck": {
+        "exclude": [
+          "@react-native-cookies/cookies",
+          "react-native-webrtc",
+          "@notifee/react-native"
+        ]
+      }
+    }
+  },
+  "//overrides": "expo-audio declares `expo-asset: *` as a PEER, and npm answers a wildcard with the newest published version — that pulled expo-asset@57 (an SDK 57 package) into the top of node_modules, displacing expo@54's own ~12.0.13 into node_modules/expo/. Gradle autolinks whatever is at the top level, so release builds shipped the SDK 57 AssetModule against expo-modules-core@3.0.30 and died on launch with NoClassDefFoundError: AnyTypeCache (expo-modules-core inlines that class into consumers, so the mismatch surfaces inside AssetModule). Neither jest nor expo export can catch this — both are JS-only. The direct dependency above fixes today's tree; this override is what stops the wildcard re-opening it on the next npm install.",
+  "overrides": {
+    "expo-asset": "~12.0.13"
   },
   "jest": {
     "preset": "jest-expo",

@@ -36,6 +36,7 @@ import ChatSettingsScreen from './screens/ChatSettingsScreen';
 import GmeetSettingsScreen from './screens/GmeetSettingsScreen';
 import AppLoginScreen from './screens/AppLoginScreen';
 import AlarmScreen from './screens/AlarmScreen';
+import DebugLogScreen from './screens/DebugLogScreen';
 import ScreenTransition from './components/ScreenTransition';
 import { ThemeProvider, useTheme } from './theme';
 import { scheduleTaskAlarm, stopAlarm } from './services/alarm';
@@ -51,7 +52,7 @@ try {
   EventType = nf.EventType;
 } catch (_) { /* notifee native module absent (pre-rebuild) — alarm inert */ }
 import * as session from './api/session';
-import { createLogger } from './api/logger';
+import { createLogger, loadLoggingPref } from './api/logger';
 import { registerForPushAsync, unregisterPush } from './services/push';
 import realtime from './services/chatRealtime';
 import callEngine from './services/callEngine';
@@ -167,6 +168,11 @@ function AppInner() {
   // Warm the draft cache once, so the chat list and composer can read drafts
   // synchronously during render.
   useEffect(() => { loadDrafts(); }, []);
+
+  // Restore whether debug logging was left switched on. Deliberately first and
+  // un-awaited by anything else: the failures worth capturing happen during
+  // launch, so the flag needs to be live as early as possible.
+  useEffect(() => { loadLoggingPref(); }, []);
 
   // Chats badge: the realtime engine emits the whole conversation list on every
   // poll, so summing unreadCount there costs nothing extra.
@@ -294,6 +300,9 @@ function AppInner() {
       }
       if (user && appScreen === 'chatsettings') { setAppScreen('chats'); return true; }
       if (user && appScreen === 'gmeetsettings') { setAppScreen(gmeetFrom || 'chatsettings'); return true; }
+      // Without this the generic fallthrough below would drop to the chat list,
+      // losing the settings screen it was opened from.
+      if (user && appScreen === 'debuglog') { setAppScreen('chatsettings'); return true; }
       // Calls is a root tab: back goes to Chats, the primary root.
       if (user && appScreen === 'calls') { setAppScreen('chats'); return true; }
       if (user && appScreen === 'chat') { setActiveChat(null); setFocusId(null); setAppScreen('chats'); return true; }
@@ -505,6 +514,7 @@ function AppInner() {
             user={user}
             onBack={() => setAppScreen('chats')}
             onOpenGmeet={() => { setGmeetFrom('chatsettings'); setAppScreen('gmeetsettings'); }}
+            onOpenDebugLog={() => setAppScreen('debuglog')}
             onLogout={logout}
           />
         );
@@ -512,6 +522,8 @@ function AppInner() {
       // settings and from a thread's ⋮ when Meet is not connected yet.
       if (appScreen === 'gmeetsettings')
         return <GmeetSettingsScreen onBack={() => setAppScreen(gmeetFrom || 'chatsettings')} />;
+      if (appScreen === 'debuglog')
+        return <DebugLogScreen onBack={() => setAppScreen('chatsettings')} />;
       if (appScreen === 'newchat' || appScreen === 'newgroup')
         return (
           <NewChatScreen
