@@ -1206,6 +1206,8 @@ export class Chat369App extends Component {
 
             <!-- Incoming call -->
             <div class="o369-incoming" t-if="state.call and state.call.status === 'incoming'">
+                <!-- Blurred avatar wallpaper; absent avatar just leaves the dark base. -->
+                <div class="o369-callbg" t-if="state.call.avatar" t-attf-style="background-image:url({{state.call.avatar}})"/>
                 <div class="o369-incomingcard">
                     <div class="o369-avatar o369-avatarxl o369-incomingav"><img t-if="state.call.avatar" t-att-src="state.call.avatar"/><span t-else="" t-esc="initials(state.call.name)"/></div>
                     <div class="o369-incomingname" t-esc="state.call.name"/>
@@ -1220,6 +1222,10 @@ export class Chat369App extends Component {
             <!-- In-call overlay -->
             <div class="o369-calloverlay" t-if="state.call and state.call.status !== 'incoming'">
                 <video class="o369-callremote" t-ref="remoteVideo" autoplay="autoplay" playsinline="playsinline"/>
+                <!-- Wallpaper only while there is no remote picture to show. -->
+                <div class="o369-callbg"
+                     t-if="state.call.avatar and !(state.call.status === 'connected' and state.call.video)"
+                     t-attf-style="background-image:url({{state.call.avatar}})"/>
                 <div class="o369-callremoteph" t-if="!(state.call.status === 'connected' and state.call.video)">
                     <div class="o369-avatar o369-avatarxl"><img t-if="state.call.avatar" t-att-src="state.call.avatar"/><span t-else="" t-esc="initials(state.call.name)"/></div>
                     <div class="o369-callname" t-esc="state.call.name"/>
@@ -2359,7 +2365,7 @@ export class Chat369App extends Component {
         pc.onicecandidate = (ev) => { if (ev.candidate) this._signal('ice', ev.candidate); };
         pc.onconnectionstatechange = () => {
             const c = this.state.call; if (!c) return;
-            if (pc.connectionState === 'connected' && c.status !== 'connected') { c.status = 'connected'; this._stopRing(); this._startCallTimer(); }
+            if (pc.connectionState === 'connected' && c.status !== 'connected') { c.status = 'connected'; clearTimeout(this._connectTimer); this._connectTimer = null; this._stopRing(); this._startCallTimer(); }
             if (['failed', 'closed', 'disconnected'].includes(pc.connectionState) && c.status === 'connected') this.endCall();
         };
         this._pendingIce = [];
@@ -2370,22 +2376,54 @@ export class Chat369App extends Component {
         try { await rpc('/chat/call/signal', { conversation_id: c.convId, call_id: c.id, kind, data: JSON.stringify(data) }); } catch (e) {}
     }
     async startCall(video) {
-        if (this.state.call) return;
+        // `state.call` alone is NOT a re-entry guard: it is not assigned until
+        // after the awaits below, leaving a window in which repeated clicks sail
+        // straight past it. In the RN app that window produced FIVE
+        // /chat/call/start requests from one tap — each minting its own call_id
+        // and ringing the callee separately, so the accepted id did not match the
+        // stored one and the offer was never created. A mouse repeats less
+        // eagerly than a touchscreen, which is the only reason this has not bitten
+        // here yet. Same bug, same fix: a synchronous flag set before anything can
+        // yield.
+        if (this.state.call || this._starting) return;
         const conv = this.state.activeConv; if (!conv || conv.is_group) { this.notify('Calls are 1:1 only.'); return; }
         if (!navigator.mediaDevices || !window.RTCPeerConnection) { this.notify('Calls are not supported in this browser.'); return; }
         this.closeMenus();
-        try { this._localStream = await this._getMedia(video); }
-        catch (e) { this.notify('Camera/mic blocked — calls need HTTPS or localhost.'); return; }
-        const ice = await this._iceConfig(conv.id);
-        this.state.call = { id: null, convId: conv.id, video, status: 'outgoing', caller: true,
-            name: conv.title, avatar: conv.avatar_url, muted: false, camOff: false, secs: 0 };
-        this._pc = this._createPc(ice);
-        this._startRing(true);
+        this._starting = true;
         try {
-            const r = await rpc('/chat/call/start', { conversation_id: conv.id, video });
-            if (r && r.status === false) { this.notify(r.message); this._teardownCall(); return; }
-            this.state.call.id = r.call_id; if (r.ice) this._iceCache = r.ice;
-        } catch (e) { this.notify('Could not start the call'); this._teardownCall(); }
+            try { this._localStream = await this._getMedia(video); }
+            catch (e) { this.notify('Camera/mic blocked — calls need HTTPS or localhost.'); return; }
+            const ice = await this._iceConfig(conv.id);
+            this.state.call = { id: null, convId: conv.id, video, status: 'outgoing', caller: true,
+                name: conv.title, avatar: conv.avatar_url, muted: false, camOff: false, secs: 0 };
+            this._pc = this._createPc(ice);
+            this._armCallTimeout();
+            this._startRing(true);
+            try {
+                const r = await rpc('/chat/call/start', { conversation_id: conv.id, video });
+                if (r && r.status === false) { this.notify(r.message); this._teardownCall(); return; }
+                this.state.call.id = r.call_id; if (r.ice) this._iceCache = r.ice;
+            } catch (e) { this.notify('Could not start the call'); this._teardownCall(); }
+        } finally {
+            this._starting = false;
+        }
+    }
+
+    // Give up on a call that never reaches 'connected'.
+    //
+    // Without this a failed negotiation leaves state.call set forever: the tab
+    // then reports itself busy, auto-rejects every incoming call in _onCallRing,
+    // and refuses to place new ones — until the page is reloaded. One failed call
+    // silently disables calling, and worse, it poisons the next attempt, which
+    // makes any diagnosis after it misleading.
+    _armCallTimeout() {
+        clearTimeout(this._connectTimer);
+        this._connectTimer = setTimeout(() => {
+            this._connectTimer = null;
+            if (!this.state.call || this.state.call.status === 'connected') return;
+            this.notify('Call could not connect');
+            this.endCall();
+        }, 45000);
     }
     _onCallRing(p) {
         if (this.state.call) { rpc('/chat/call/reject', { conversation_id: p.conversation_id, call_id: p.call_id }).catch(() => {}); return; }
@@ -2400,6 +2438,7 @@ export class Chat369App extends Component {
         catch (e) { this.notify('Camera/mic blocked — calls need HTTPS or localhost.'); this.rejectCall(); return; }
         const ice = await this._iceConfig(c.convId);
         this._pc = this._createPc(ice);
+        this._armCallTimeout();
         this._stopRing(); c.status = 'connecting';
         try { await rpc('/chat/call/accept', { conversation_id: c.convId, call_id: c.id }); } catch (e) {}
     }
@@ -2456,6 +2495,8 @@ export class Chat369App extends Component {
     }
     _teardownCall() {
         clearInterval(this._callTimer); this._callTimer = null; this._stopRing();
+        clearTimeout(this._connectTimer); this._connectTimer = null;
+        this._starting = false;
         try { if (this._pc) { this._pc.onicecandidate = null; this._pc.ontrack = null; this._pc.onconnectionstatechange = null; this._pc.close(); } } catch (e) {}
         this._pc = null;
         try { if (this._localStream) this._localStream.getTracks().forEach((t) => t.stop()); } catch (e) {}

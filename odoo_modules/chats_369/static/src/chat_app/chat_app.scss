@@ -1244,47 +1244,76 @@ $o369-green-deep: #0E8F53;
     .o369-themename { font-size: 12.5px; font-weight: 600; color: var(--o369-text); }
     .o369-themeck { text-shadow: 0 1px 3px rgba(0,0,0,.4); }
 
-    /* ================= Calls ================= */
+    /* ================= Calls =================
+       Styled to match the app's call screen (screens/CallScreen.js) so the two
+       clients look like one product: near-black backdrop with the contact's own
+       avatar blurred behind it, identity in the upper third rather than centred,
+       and icon-only circular controls with an inverted "engaged" state.
+
+       Deliberately CSS-only apart from one backdrop element per overlay: none of
+       this can touch signalling, and a bad rule shows up immediately instead of
+       breaking a call. */
     .o369-calloverlay {
-        position: fixed; inset: 0; z-index: 3000; background: #0b1420; display: flex; overflow: hidden;
+        position: fixed; inset: 0; z-index: 3000; background: #0b1017; display: flex; overflow: hidden;
         animation: o369-fadein .18s ease;
     }
-    .o369-callremote { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #0b1420; }
+    .o369-callremote { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #0b1017; }
+
+    /* Wallpaper, not content: the avatar blown up and blurred, then dimmed so
+       white text stays readable over a light photo. Falls back to the flat dark
+       base when there is no avatar. */
+    .o369-callbg {
+        position: absolute; inset: -60px; z-index: 0;
+        background-size: cover; background-position: center;
+        filter: blur(42px) saturate(1.15); transform: scale(1.1);
+    }
+    .o369-callbg::after { content: ""; position: absolute; inset: 0; background: rgba(8,12,18,.58); }
+
     .o369-callremoteph { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
-        justify-content: center; gap: 12px; background: linear-gradient(160deg, #16324e, #0b1420); color: #fff; }
-    .o369-callremoteph .o369-avatarxl { width: 116px; height: 116px; font-size: 44px; }
-    .o369-callname { font-size: 22px; font-weight: 700; }
-    .o369-callstatus { font-size: 14px; opacity: .8; }
+        justify-content: flex-start; padding-top: 14vh; gap: 6px; color: #fff; z-index: 1; }
+    .o369-callremoteph .o369-avatarxl { width: 128px; height: 128px; font-size: 48px;
+        box-shadow: 0 10px 34px rgba(0,0,0,.45); }
+    .o369-callname { font-size: 26px; font-weight: 700; margin-top: 18px; }
+    .o369-callstatus { font-size: 15px; opacity: .72; }
     .o369-calltop { position: absolute; top: 20px; left: 0; right: 0; text-align: center; color: #fff; font-size: 14px;
         text-shadow: 0 1px 4px rgba(0,0,0,.5); z-index: 2; }
     .o369-calllocal {
-        position: absolute; right: 18px; bottom: 104px; width: 150px; height: 200px; object-fit: cover;
-        border-radius: 12px; background: #21313f; box-shadow: 0 6px 20px rgba(0,0,0,.4); z-index: 3; transform: scaleX(-1);
+        position: absolute; right: 18px; top: 18px; width: 150px; height: 200px; object-fit: cover;
+        border-radius: 14px; background: #21313f; box-shadow: 0 6px 20px rgba(0,0,0,.45); z-index: 3;
+        transform: scaleX(-1); border: 1px solid rgba(255,255,255,.35);
         &.o369-calllocal-off { visibility: hidden; }
     }
-    .o369-callctrls { position: absolute; left: 0; right: 0; bottom: 26px; display: flex; justify-content: center;
-        gap: 20px; z-index: 4; }
+    .o369-callctrls { position: absolute; left: 0; right: 0; bottom: 34px; display: flex; justify-content: center;
+        gap: 26px; z-index: 4; }
     .o369-callbtn {
-        width: 56px; height: 56px; border-radius: 50%; border: none; cursor: pointer; color: #fff;
-        background: rgba(255,255,255,.18); font-size: 20px; display: flex; align-items: center; justify-content: center;
+        width: 58px; height: 58px; border-radius: 50%; border: none; cursor: pointer; color: #fff;
+        background: rgba(255,255,255,.18); font-size: 21px; display: flex; align-items: center; justify-content: center;
         transition: background .15s, transform .1s;
         &:hover { background: rgba(255,255,255,.28); }
         &:active { transform: scale(.94); }
-        &.o369-callbtn-off { background: var(--o369-panel); color: #16324e; }
+        /* Engaged state inverts to a white pill — the same signal the app uses,
+           and far clearer than dimming the icon. */
+        &.o369-callbtn-off { background: #fff; color: #10161f; }
     }
     .o369-callend { background: #e5352b; &:hover { background: #cf2a20; } .fa { transform: rotate(135deg); } }
     .o369-callaccept { background: #12B76A; &:hover { background: #0E8F53; } }
 
-    /* Incoming call modal */
-    .o369-incoming { position: fixed; inset: 0; z-index: 3200; background: rgba(6,14,24,.72);
-        display: flex; align-items: center; justify-content: center; animation: o369-fadein .16s ease; }
-    .o369-incomingcard { background: linear-gradient(160deg, #16324e, #0b1420); color: #fff; border-radius: 20px;
-        padding: 30px 34px; display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 300px;
-        box-shadow: 0 20px 60px rgba(0,0,0,.5); animation: o369-pop .18s ease; }
-    .o369-incomingav { width: 100px; height: 100px; font-size: 40px; margin-bottom: 6px; }
-    .o369-incomingname { font-size: 21px; font-weight: 700; }
-    .o369-incomingsub { font-size: 13px; opacity: .8; margin-bottom: 18px; }
-    .o369-incomingbtns { display: flex; gap: 46px; }
+    /* Incoming call — full screen, matching the app rather than a small card. */
+    .o369-incoming { position: fixed; inset: 0; z-index: 3200; background: #0b1017;
+        display: flex; align-items: center; justify-content: center; overflow: hidden;
+        animation: o369-fadein .16s ease; }
+    .o369-incomingcard { position: relative; z-index: 1; color: #fff; background: none; box-shadow: none;
+        border-radius: 0; padding: 0; display: flex; flex-direction: column; align-items: center; gap: 6px;
+        width: 100%; height: 100%; justify-content: flex-start; padding-top: 14vh;
+        animation: o369-fadein .18s ease; }
+    .o369-incomingav { width: 128px; height: 128px; font-size: 48px; margin-bottom: 6px;
+        box-shadow: 0 10px 34px rgba(0,0,0,.45); }
+    .o369-incomingname { font-size: 26px; font-weight: 700; margin-top: 12px; }
+    .o369-incomingsub { font-size: 15px; opacity: .72; }
+    /* Pushed to the bottom and far apart, so the wrong one is hard to hit. */
+    .o369-incomingbtns { display: flex; gap: 0; justify-content: space-evenly;
+        position: absolute; left: 0; right: 0; bottom: 8vh; padding: 0 16%; }
+    .o369-incomingbtns .o369-callbtn { width: 68px; height: 68px; font-size: 25px; }
 
     /* ---- Calls tab ---- */
     .o369-callspane .o369-panehead { display: flex; align-items: center; justify-content: space-between; }
