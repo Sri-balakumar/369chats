@@ -13,6 +13,7 @@ read-tick rendering land in Phases 2 & 3; the fields already exist.
 
 from odoo import http, fields
 from odoo.http import request
+from ..models.res_users import CHAT_ONLINE_WINDOW
 from datetime import timedelta
 import odoo
 import json
@@ -146,7 +147,9 @@ class Chat369API(http.Controller):
     # ================================================================== #
     # Realtime (bus) + presence helpers                                   #
     # ================================================================== #
-    _ONLINE_WINDOW = 45   # seconds since chat_last_seen to still count as "online"
+    # Single source of truth lives on the model that owns chat_last_seen, because
+    # _chat_mark_away() has to backdate past exactly this value.
+    _ONLINE_WINDOW = CHAT_ONLINE_WINDOW
     # How long after sending you may still delete a message FOR EVERYONE. Both
     # clients read this back off /chat/messages via `can_delete_all`, so the
     # window lives in exactly one place.
@@ -1101,8 +1104,17 @@ class Chat369API(http.Controller):
 
     @http.route('/chat/heartbeat', type='json', auth='user', methods=['POST'], csrf=False)
     def chat_heartbeat(self, **params):
-        """Keep the caller's presence fresh (called on a slow interval by the app)."""
-        request.env.user._chat_touch_presence()
+        """Keep the caller's presence fresh (called on a slow interval by the app).
+
+        `away: true` means the opposite — the client is telling us it is leaving
+        (app backgrounded, browser tab hidden or closed). Presence can otherwise
+        only LAPSE: the server stops hearing from someone and keeps showing them
+        online until the window expires, which is up to 45s of visibly wrong
+        status. This makes it immediate."""
+        if params.get('away'):
+            request.env.user._chat_mark_away()
+        else:
+            request.env.user._chat_touch_presence()
         return {'status': True}
 
     @http.route('/chat/bus_channel', type='json', auth='user', methods=['POST'], csrf=False)

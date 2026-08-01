@@ -1364,12 +1364,22 @@ export class Chat369App extends Component {
             this._timer = setInterval(() => this.tick(), 6000);
             // tick() skips while hidden (see there), so catch up the moment the
             // tab comes back instead of waiting out the remaining interval.
-            this._onVis = () => { if (document.visibilityState === 'visible') this.tick(); };
+            this._onVis = () => {
+                if (document.visibilityState === 'visible') this.tick();
+                else this._markAway();
+            };
             document.addEventListener('visibilitychange', this._onVis);
+            // Closing the tab must also mark us away. A normal rpc() is abandoned
+            // when the page unloads, so use sendBeacon, which the browser delivers
+            // after the page is gone. 'pagehide' fires where 'unload' does not
+            // (bfcache, mobile Safari), so prefer it.
+            this._onLeave = () => this._markAway(true);
+            window.addEventListener('pagehide', this._onLeave);
         });
         onWillUnmount(() => {
             if (this._timer) { clearInterval(this._timer); this._timer = null; }
             if (this._onVis) { document.removeEventListener('visibilitychange', this._onVis); this._onVis = null; }
+            if (this._onLeave) { window.removeEventListener('pagehide', this._onLeave); this._onLeave = null; }
             this._teardownCall();
         });
         onPatched(() => {
@@ -2859,6 +2869,25 @@ export class Chat369App extends Component {
     // poll
     // Safety-net poll (the bus does the instant work). Refreshes the list + presence
     // and reconciles the open thread's ticks/reactions/edits every few seconds.
+    // Tell the server we are gone, so watchers see "last seen" immediately rather
+    // than up to 45s of stale "online". Presence can otherwise only lapse.
+    //
+    // `unloading` switches to sendBeacon: an ordinary rpc() is cancelled when the
+    // page goes away, so a closing tab would never actually report itself away —
+    // which is the case that matters most.
+    _markAway(unloading = false) {
+        const body = JSON.stringify({
+            jsonrpc: '2.0', method: 'call', params: { away: true },
+        });
+        if (unloading && navigator.sendBeacon) {
+            try {
+                navigator.sendBeacon('/chat/heartbeat', new Blob([body], { type: 'application/json' }));
+            } catch (e) { /* best effort; the 45s window is still the backstop */ }
+            return;
+        }
+        rpc('/chat/heartbeat', { away: true }).catch(() => {});
+    }
+
     async tick() {
         // Skip the poll while the tab is hidden, so a buried tab does not keep
         // claiming the user is online.

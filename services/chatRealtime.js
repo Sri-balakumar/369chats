@@ -114,6 +114,11 @@ class ChatRealtime {
         this._tickThread();
       } else {
         this._stopPolling();
+        // Say we have gone rather than letting presence lapse: without this the
+        // other side keeps seeing "online" until the 45s window expires.
+        // Best-effort — the app may be suspended before it lands, and the window
+        // is still there as the backstop.
+        chat.markAway().catch(() => {});
       }
     });
   }

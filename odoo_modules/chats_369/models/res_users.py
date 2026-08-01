@@ -4,7 +4,17 @@
 controller derives online (< window) / last-seen from it, honouring the per-user
 privacy settings and WhatsApp's reciprocity rule (hide yours -> can't see others').
 """
+from datetime import timedelta
+
 from odoo import fields, models
+
+# How long after chat_last_seen a user still counts as "online".
+#
+# Defined HERE, on the model that owns the field, and imported by the controller —
+# it used to be a bare literal in chat_api.py, and _chat_mark_away() below has to
+# agree with it exactly. Two copies of this number would drift and the failure
+# would be subtle: someone marked away would quietly still read as online.
+CHAT_ONLINE_WINDOW = 45
 
 
 class ResUsers(models.Model):
@@ -33,3 +43,19 @@ class ResUsers(models.Model):
         """Mark the caller active right now (cheap; called from poll/heartbeat)."""
         if self:
             self.sudo().write({'chat_last_seen': fields.Datetime.now()})
+
+    def _chat_mark_away(self):
+        """Mark the caller as gone RIGHT NOW rather than waiting out the window.
+
+        Presence is "seen within _ONLINE_WINDOW seconds", so on its own it can only
+        lapse: when someone closes the tab or backgrounds the app the server simply
+        stops hearing from them and keeps showing them online until the window
+        expires. That is up to 45s of lying, which is very visible to the person
+        watching.
+
+        Clients call this when they know they are leaving. Backdating past the
+        window (rather than clearing the field) keeps `last seen` meaningful — it
+        still reads "last seen just now", it just no longer counts as online."""
+        if self:
+            gone = fields.Datetime.now() - timedelta(seconds=CHAT_ONLINE_WINDOW + 5)
+            self.sudo().write({'chat_last_seen': gone})

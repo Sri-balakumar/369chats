@@ -916,6 +916,11 @@ export function firstUrl(text) {
 // fetchConversations and fetchMessages also stamp presence as a side effect.
 export function heartbeat() { return call('/chat/heartbeat', {}, 8000); }
 
+// Tell the server we are leaving, so the other side sees "last seen" immediately
+// instead of up to 45s of stale "online". Presence can otherwise only lapse.
+// Short timeout: this fires as the app backgrounds and must not hang.
+export function markAway() { return call('/chat/heartbeat', { away: true }, 5000); }
+
 // Plain-text transcript of a conversation. /chat/export is type='http', not the
 // JSON-RPC envelope every other call uses, so it is fetched directly — and it
 // needs credentials, like every other authenticated Odoo route here.
