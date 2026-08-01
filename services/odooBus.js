@@ -27,12 +27,20 @@
 // reconnect after a dropped connection does not lose events — and does not repeat
 // ones already handled. websocket_worker.js does exactly this.
 import { AppState } from 'react-native';
-import CookieManager from '@react-native-cookies/cookies';
 import { getConnection } from '../api/session';
 import { jsonRpc } from '../api/odooApi';
 import { createLogger } from '../api/logger';
 
 const log = createLogger('Bus');
+
+// Optional native module — same pattern as notifee in App.js. Imported at module
+// scope it would throw during LOADING when the native side is absent (Expo Go, or
+// any build predating it), killing the whole app with a red screen before React
+// renders anything. One optional feature must not take the app down with it.
+let CookieManager = null;
+try {
+  CookieManager = require('@react-native-cookies/cookies').default;
+} catch (e) { /* absent — see _authHeaders for what that costs */ }
 
 // Reconnect backoff. Starts fast because the common case is a blip, and caps low
 // enough that a phone coming back onto wifi reconnects while the user is still
@@ -226,6 +234,14 @@ class OdooBus {
   // that failure mode entirely.
   async _authHeaders(serverUrl) {
     const headers = { Origin: serverUrl.replace(/\/+$/, '') };
+    if (!CookieManager) {
+      // Without the native cookie jar the handshake is anonymous, so Odoo
+      // subscribes the socket to nothing and no event ever arrives. Chat still
+      // works — polling covers it — but calls cannot ring. Say so plainly rather
+      // than leaving a silent dead socket.
+      log.warn('no cookie module — bus will be anonymous; calling needs the full app build');
+      return headers;
+    }
     try {
       const jar = await CookieManager.get(serverUrl);
       const sid = jar?.session_id?.value;

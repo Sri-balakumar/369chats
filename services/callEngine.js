@@ -26,17 +26,39 @@
 // Media path only — the signalling wrappers live in services/chat.js and the
 // events arrive on services/odooBus.js. Without the bus connected a call cannot
 // ring at all; polling never sees these events.
-import {
-  RTCPeerConnection,
-  RTCIceCandidate,
-  RTCSessionDescription,
-  mediaDevices,
-} from 'react-native-webrtc';
 import * as chat from './chat';
 import bus from './odooBus';
 import { createLogger } from '../api/logger';
 
 const log = createLogger('Call');
+
+// react-native-webrtc is native (libwebrtc). Imported at module scope it throws
+// during LOADING wherever the native side is absent — Expo Go, or any build made
+// before it was added — taking the entire app down with a red screen before React
+// renders. Calling is one feature; it must not cost the whole UI.
+//
+// Same pattern App.js already uses for notifee. Everything below stays callable
+// when this is null: startCall() reports it cleanly and the bus handlers no-op,
+// so nothing has to null-check at each call site.
+let RTCPeerConnection = null;
+let RTCIceCandidate = null;
+let RTCSessionDescription = null;
+let mediaDevices = null;
+try {
+  const w = require('react-native-webrtc');
+  RTCPeerConnection = w.RTCPeerConnection;
+  RTCIceCandidate = w.RTCIceCandidate;
+  RTCSessionDescription = w.RTCSessionDescription;
+  mediaDevices = w.mediaDevices;
+} catch (e) { /* absent — isSupported() reports false and calling is disabled */ }
+
+// True only in a real build. Screens use this to hide call affordances rather
+// than offering an action that cannot work.
+export function isCallingSupported() {
+  return !!(RTCPeerConnection && mediaDevices);
+}
+
+const NO_NATIVE = 'Calling needs the full app build.';
 
 const FALLBACK_ICE = [{ urls: 'stun:stun.l.google.com:19302' }];
 
@@ -76,6 +98,13 @@ class CallEngine {
   // Both calls are idempotent.
   start() {
     bus.start();
+    // Without WebRTC there is nothing to answer a ring with, so do not subscribe
+    // at all — an incoming call would otherwise render a screen whose Accept
+    // button could only fail.
+    if (!isCallingSupported()) {
+      log.info('WebRTC native module absent — calling disabled');
+      return;
+    }
     if (this.busSub) return;
     this.busSub = bus.subscribe((event, payload) => {
       switch (event) {
@@ -225,6 +254,7 @@ class CallEngine {
     //     never created and the call dies silently in "Ringing…".
     //
     // Hence a synchronous flag, set before anything can yield.
+    if (!isCallingSupported()) return NO_NATIVE;
     if (this.call || this.starting) return 'Already in a call.';
     if (!conv || conv.isGroup) return 'Calls are 1:1 only.';
     this.starting = true;

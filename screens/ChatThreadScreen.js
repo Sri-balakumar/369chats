@@ -27,7 +27,7 @@ import VoiceRecorder from '../components/chat/VoiceRecorder';
 import CameraCaptureModal from '../components/CameraCaptureModal';
 import * as chat from '../services/chat';
 import realtime from '../services/chatRealtime';
-import callEngine from '../services/callEngine';
+import callEngine, { isCallingSupported } from '../services/callEngine';
 import { draftFor, setDraft, clearDraft } from '../services/drafts';
 import { copyText } from '../utils/clipboard';
 import useKeyboardHeight from '../utils/useKeyboardHeight';
@@ -199,7 +199,12 @@ export default function ChatThreadScreen({
   // ── placing a call ─────────────────────────────────────────────────────────
   // Mirrors canCall() in the web client. `oversight` rows are the admin monitor
   // view — you are watching someone else's chat, not a participant in it.
-  const canCall = !isGroup && !conversation?.oversight && !conversation?.blockedByMe;
+  //
+  // Also gated on the WebRTC native module actually being present: without a real
+  // build there is nothing to place a call with, and offering a button that can
+  // only fail is worse than not showing one.
+  const canCall = isCallingSupported()
+    && !isGroup && !conversation?.oversight && !conversation?.blockedByMe;
   const [callErr, setCallErr] = useState(null);
 
   // startCall resolves to an error STRING (or null); it does not throw, because

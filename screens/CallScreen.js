@@ -20,10 +20,16 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
-import { RTCView } from 'react-native-webrtc';
 import { Avatar } from '../components/ui';
 import callEngine from '../services/callEngine';
 import { RADIUS, SPACING, themed } from '../theme';
+
+// Optional native view — see the note in services/callEngine.js. Without WebRTC
+// there can never be a call, so this component always renders null and RTCView is
+// never reached; the guard exists so merely IMPORTING this screen cannot crash the
+// app where the native module is absent.
+let RTCView = null;
+try { RTCView = require('react-native-webrtc').RTCView; } catch (e) { /* no video */ }
 
 // Ring pattern: buzz, pause, repeat. The second arg to Vibration.vibrate makes it
 // loop, and it MUST be cancelled explicitly or it keeps going after the call ends.
@@ -93,7 +99,7 @@ export default function CallScreen() {
   const connected = status === 'connected';
   const remoteStream = call?.remoteStream;
   const localStream = call?.localStream;
-  const showRemoteVideo = video && connected && !!remoteStream;
+  const showRemoteVideo = !!RTCView && video && connected && !!remoteStream;
 
   // Start the auto-hide only once the remote picture is actually up; before that
   // there is nothing to hide and vanishing controls just look broken.
@@ -105,7 +111,7 @@ export default function CallScreen() {
   if (!call) return null;
 
   const { muted, camOff } = call;
-  const showLocalVideo = video && !camOff && !!localStream;
+  const showLocalVideo = !!RTCView && video && !camOff && !!localStream;
   const incoming = status === 'incoming';
 
   return (
