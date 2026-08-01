@@ -1124,10 +1124,31 @@ class Chat369API(http.Controller):
         scheme = 'wss' if request.httprequest.scheme == 'https' else 'ws'
         host = (request.httprequest.host or '').split(':')[0]
         port = odoo.tools.config.get('gevent_port') or 8072
+
+        # ?version is NOT optional. bus/websocket.py::_serve_forever does:
+        #     if httprequest.user_agent and version != cls._VERSION:
+        #         websocket.close(CloseCode.CLEAN, "OUTDATED_VERSION")
+        # React Native sends a User-Agent, so a version-less connection is treated
+        # as an outdated browser worker and closed the instant it opens. Because
+        # the close is CLEAN it raises no error anywhere: the client sees a
+        # successful handshake, then silence, then reconnects and is closed again
+        # forever. That is exactly why calls never rang — the socket looked alive
+        # and delivered nothing.
+        #
+        # Read from the server's own constant so an Odoo upgrade that bumps
+        # _VERSION cannot silently break this again.
+        try:
+            from odoo.addons.bus.websocket import WebsocketConnectionHandler
+            version = WebsocketConnectionHandler._VERSION
+        except Exception:  # pragma: no cover - bus should always be present
+            version = ''
+        url = '%s://%s:%s/websocket' % (scheme, host, port)
+        if version:
+            url = '%s?version=%s' % (url, version)
         return {
             'status': True,
             'channel': self._user_channel(request.env.user),
-            'ws_url': '%s://%s:%s/websocket' % (scheme, host, port),
+            'ws_url': url,
         }
 
     @http.route('/chat/group/invite', type='json', auth='user', methods=['POST'], csrf=False)

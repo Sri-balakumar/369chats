@@ -176,9 +176,16 @@ class OdooBus {
       // actually carries.
       ws.onerror = (e) => log.warn('socket error', wsUrl, e?.message || e?.reason || e?.code || '(no detail)');
 
-      ws.onclose = () => {
+      // ALWAYS log the close code and reason. This handler used to be silent,
+      // which hid the actual fault for hours: Odoo was accepting the handshake
+      // and then immediately closing with CleanClose/"OUTDATED_VERSION" because
+      // the URL carried no ?version. A clean close raises no error, so the only
+      // visible evidence was a socket that connected and delivered nothing —
+      // and the server was telling us why in the reason string all along.
+      ws.onclose = (e) => {
         if (this.ws !== ws) return;             // superseded by a newer socket
         this.ws = null;
+        log.warn('socket closed', e?.code ?? '(no code)', e?.reason || '(no reason)');
         this.emit('bus_state', { connected: false });
         this._scheduleRetry();
       };
@@ -243,6 +250,12 @@ class OdooBus {
       const payload = msg.payload || {};
       const event = payload.event;
       if (!event) return;
+      // Log EVERY event that arrives. Without this the bus is a black box: a
+      // socket that is connected but delivering nothing looks identical to one
+      // that is delivering fine, and telling those apart by inference cost this
+      // project a very long day. One line per event is cheap — logging is opt-in
+      // and off in normal use.
+      log.info('event', event, payload.conversation_id ? `conv=${payload.conversation_id}` : '');
       // The server names the event inside the payload; re-emit under that name so
       // listeners match on 'message' / 'call_ring' / … exactly as the web client does.
       this.emit(event, payload);
