@@ -126,12 +126,23 @@
         <field name="tag">chats_369_app</field>
     </record>
 
-    <!-- ===== Standalone top-level "369Chats" app (own icon in the Apps grid) ===== -->
+    <!-- ===== Standalone top-level "369Chats" app (own icon in the Apps grid) =====
+
+         Visible to every internal user. It was restricted to group_system + the
+         KRA owner/admin groups, which meant ordinary employees could not reach
+         the chat app at all — it simply did not appear in their Apps list. That
+         is the wrong default for a company chat tool: the whole point is that
+         everyone can use it.
+
+         Safe to open up, because access is enforced by record rules rather than
+         by hiding the menu: every rule in security/chats_rules.xml is scoped to
+         base.group_user and filters rows down to conversations the user is
+         actually a member of. Hiding the menu was never what kept data private. -->
     <menuitem id="menu_chats_369_root"
               name="369Chats"
               sequence="46"
               web_icon="chats_369,static/description/icon.png"
-              groups="base.group_system,kra_kpi_module.group_kra_owner,kra_kpi_module.group_kra_admin"/>
+              groups="base.group_user"/>
 
     <!-- The chat UI is the default screen of the app (first child). -->
     <menuitem id="menu_chats_369_chat"
@@ -140,16 +151,22 @@
               action="action_chats_369_app"
               sequence="5"/>
 
+    <!-- The two below are raw back-office list views of the underlying tables,
+         not the product. Record rules would keep an employee to their own rows
+         anyway, but there is no reason to put database views in front of them —
+         so these stay with the administrators. -->
     <menuitem id="menu_chats_369_conversations"
               name="Conversations"
               parent="menu_chats_369_root"
               action="action_chat_conversation"
-              sequence="10"/>
+              sequence="10"
+              groups="base.group_system,kra_kpi_module.group_kra_owner,kra_kpi_module.group_kra_admin"/>
 
     <menuitem id="menu_chats_369_messages"
               name="Messages"
               parent="menu_chats_369_root"
               action="action_chat_message"
-              sequence="20"/>
+              sequence="20"
+              groups="base.group_system,kra_kpi_module.group_kra_owner,kra_kpi_module.group_kra_admin"/>
 
 </odoo>

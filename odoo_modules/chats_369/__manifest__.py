@@ -21,6 +21,11 @@
 
     "assets": {
         "web.assets_backend": [
+            # Must load BEFORE chat_app.js: it replaces the bus.parameters service
+            # so the websocket targets Odoo's evented port, and bus_service reads
+            # that at startup. Loaded after the fact, the socket is already dialling
+            # the wrong port.
+            "chats_369/static/src/chat_app/bus_origin.js",
             "chats_369/static/src/chat_app/chat_app.js",
             "chats_369/static/src/chat_app/chat_app.scss",
         ],

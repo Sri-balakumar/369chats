@@ -43,10 +43,19 @@ const FALLBACK_ICE = [{ urls: 'stun:stun.l.google.com:19302' }];
 // Matches the web client's constraints so both ends negotiate the same profile.
 const VIDEO_CONSTRAINTS = { width: 1280, height: 720 };
 
+// Give up on a call that never reaches 'connected'. Without this a failed
+// negotiation leaves `this.call` set forever: the engine then reports itself busy,
+// auto-rejects every incoming call, and refuses to place new ones — so ONE failed
+// call bricks calling until the app is restarted. Long enough to cover a slow
+// ICE gather on a bad network, short enough that a person is still watching.
+const CONNECT_TIMEOUT_MS = 45000;
+
 class CallEngine {
   constructor() {
     this.listeners = new Set();
     this.call = null;            // null when idle — the single source of truth
+    this.starting = false;       // synchronous re-entry guard; see startCall()
+    this.connectTimer = null;    // kills a call that never reaches 'connected'
     this.pc = null;
     this.localStream = null;
     this.remoteStream = null;
@@ -165,6 +174,7 @@ class CallEngine {
       const st = pc.connectionState;
       if (st === 'connected' && c.status !== 'connected') {
         c.status = 'connected';
+        clearTimeout(this.connectTimer); this.connectTimer = null;
         this._startTimer();
         this._publish();
       }
@@ -201,15 +211,38 @@ class CallEngine {
   // `conv` needs { id, title, avatarUrl, isGroup }. Returns an error string on
   // refusal, or null when the call is ringing.
   async startCall(conv, video = false) {
-    if (this.call) return 'Already in a call.';
+    // `this.call` alone is NOT a re-entry guard: it is not assigned until after
+    // the two awaits below, leaving a window of hundreds of milliseconds in which
+    // further taps sail straight past it. That window was real — a single press
+    // produced FIVE /chat/call/start requests in 50ms, and the damage is worse
+    // than duplicate work:
+    //
+    //   * each start mints its own call_id and rings the callee separately;
+    //   * the callee answers one and busy-rejects the rest;
+    //   * all five races share one `this.call`, so the id left in it is whichever
+    //     response happened to land last — usually NOT the one that was accepted;
+    //   * `_onAccept` then sees p.call_id !== c.id and returns, so the offer is
+    //     never created and the call dies silently in "Ringing…".
+    //
+    // Hence a synchronous flag, set before anything can yield.
+    if (this.call || this.starting) return 'Already in a call.';
     if (!conv || conv.isGroup) return 'Calls are 1:1 only.';
+    this.starting = true;
 
-    try { this.localStream = await this._getMedia(video); }
-    catch (e) {
-      log.warn('getUserMedia denied', e?.message);
-      return video ? 'Camera and microphone permission is needed.' : 'Microphone permission is needed.';
+    try {
+      try { this.localStream = await this._getMedia(video); }
+      catch (e) {
+        log.warn('getUserMedia denied', e?.message);
+        return video ? 'Camera and microphone permission is needed.' : 'Microphone permission is needed.';
+      }
+
+      return await this._startCallInner(conv, video);
+    } finally {
+      this.starting = false;
     }
+  }
 
+  async _startCallInner(conv, video) {
     const ice = await this._iceConfig(conv.id);
     this.call = {
       id: null, convId: conv.id, video: !!video, status: 'outgoing', caller: true,
@@ -217,6 +250,7 @@ class CallEngine {
       muted: false, camOff: false, secs: 0,
     };
     this.pc = this._createPc(ice);
+    this._armConnectTimeout();
     this._publish();
 
     try {
@@ -270,6 +304,7 @@ class CallEngine {
       return null;
     }
     this.pc = this._createPc(ice);
+    this._armConnectTimeout();
     c.status = 'connecting';
     this._publish();
 
@@ -375,8 +410,22 @@ class CallEngine {
     if (declined) log.info('call declined by peer');
   }
 
+  // Fires only if the peer connection never reaches 'connected'; cancelled the
+  // moment it does, and by _teardown on any normal ending.
+  _armConnectTimeout() {
+    clearTimeout(this.connectTimer);
+    this.connectTimer = setTimeout(() => {
+      this.connectTimer = null;
+      if (!this.call || this.call.status === 'connected') return;
+      log.warn('call never connected within', CONNECT_TIMEOUT_MS, 'ms — giving up');
+      this.hangup();
+    }, CONNECT_TIMEOUT_MS);
+  }
+
   _teardown() {
     clearInterval(this.timer); this.timer = null;
+    clearTimeout(this.connectTimer); this.connectTimer = null;
+    this.starting = false;
 
     // Handlers first — see note 3 at the top.
     try {

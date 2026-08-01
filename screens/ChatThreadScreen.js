@@ -205,17 +205,30 @@ export default function ChatThreadScreen({
   // startCall resolves to an error STRING (or null); it does not throw, because
   // every failure here is one the user should simply be told about — no mic
   // permission, already in a call, the server refusing a blocked contact.
+  //
+  // The ref is a second line of defence against double-firing. callEngine now
+  // guards re-entry itself, but this stops the repeat presses ever reaching it:
+  // a single tap was producing FIVE /chat/call/start requests, each ringing the
+  // callee separately, and the resulting call_id mismatch silently killed the
+  // call. Belt and braces is cheap; a call that dies in "Ringing…" is not.
+  const callingRef = useRef(false);
   const placeCall = useCallback(async (video) => {
-    const msg = await callEngine.startCall(
-      {
-        id: convId,
-        title: conversation?.title,
-        avatarUrl: conversation?.avatarUrl,
-        isGroup,
-      },
-      video,
-    );
-    if (msg) setCallErr(msg);
+    if (callingRef.current) return;
+    callingRef.current = true;
+    try {
+      const msg = await callEngine.startCall(
+        {
+          id: convId,
+          title: conversation?.title,
+          avatarUrl: conversation?.avatarUrl,
+          isGroup,
+        },
+        video,
+      );
+      if (msg) setCallErr(msg);
+    } finally {
+      callingRef.current = false;
+    }
   }, [convId, conversation?.title, conversation?.avatarUrl, isGroup]);
 
   // ── initial load ───────────────────────────────────────────────────────────
