@@ -43,6 +43,22 @@ const BACKOFF_MS = [1000, 2000, 4000, 8000, 15000, 30000];
 // not hold a socket open forever — drop it and let backoff retry.
 const OPEN_TIMEOUT_MS = 15000;
 
+// Re-send the subscribe frame on this interval.
+//
+// This is a KEEPALIVE, not a re-subscription for its own sake, and it is the
+// difference between calls working and not. Odoo disconnects a websocket after
+// 40s of inactivity (INACTIVITY_TIMEOUT in bus/websocket.py) — but the device is
+// never told. `onclose` does not fire, the TCP socket still reads ESTABLISHED in
+// /proc/net/tcp, and the app sits on a half-open connectionForever, deaf.
+//
+// Proven on the server: after the app's socket went quiet, every dispatch went to
+// the browser and none to the app, while the device still believed it was
+// connected. Every "the call never rang" symptom traces back to this.
+//
+// 30s keeps us comfortably inside the 40s window, and traffic in both directions
+// means a genuinely dead socket surfaces as an error/close instead of silence.
+const KEEPALIVE_MS = 30000;
+
 class OdooBus {
   constructor() {
     this.listeners = new Set();
@@ -54,6 +70,7 @@ class OdooBus {
     this.attempt = 0;
     this.retryTimer = null;
     this.openTimer = null;
+    this.keepTimer = null;       // keepalive; see KEEPALIVE_MS
     this.connecting = false;
     this.appSub = null;
   }
@@ -91,7 +108,8 @@ class OdooBus {
   stop() {
     this.running = false;
     clearTimeout(this.retryTimer); clearTimeout(this.openTimer);
-    this.retryTimer = this.openTimer = null;
+    clearInterval(this.keepTimer);
+    this.retryTimer = this.openTimer = this.keepTimer = null;
     if (this.appSub) { this.appSub.remove(); this.appSub = null; }
     this._closeSocket();
     // Channel is per-session; a new login must re-resolve it (and with it the
@@ -103,6 +121,9 @@ class OdooBus {
   }
 
   _closeSocket() {
+    // Stop the keepalive with the socket it belongs to; a fresh one is started by
+    // the next onopen. Leaving it running would stack an interval per reconnect.
+    clearInterval(this.keepTimer); this.keepTimer = null;
     const ws = this.ws;
     this.ws = null;
     if (!ws) return;
@@ -163,7 +184,8 @@ class OdooBus {
         clearTimeout(this.openTimer); this.openTimer = null;
         this.attempt = 0;
         log.info('bus connected');
-        this._send({ event_name: 'subscribe', data: { channels: [this.channel], last: this.lastId } });
+        this._subscribe();
+        this._startKeepalive();
         this.emit('bus_state', { connected: true });
       };
 
@@ -220,6 +242,29 @@ class OdooBus {
   _send(obj) {
     try { this.ws?.send(JSON.stringify(obj)); }
     catch (e) { log.warn('send failed', e?.message); }
+  }
+
+  // Re-sending `subscribe` is safe and idempotent: Odoo's Dispatcher.subscribe
+  // overwrites the existing registration rather than duplicating it. Sending the
+  // current lastId also means a reconnect never replays what we already handled.
+  _subscribe() {
+    this._send({ event_name: 'subscribe', data: { channels: [this.channel], last: this.lastId } });
+  }
+
+  _startKeepalive() {
+    clearInterval(this.keepTimer);
+    this.keepTimer = setInterval(() => {
+      if (!this.running) return;
+      if (!this.isConnected()) {
+        // Socket is not usable but we were never told — the half-open case this
+        // whole mechanism exists for. Force it closed so the normal retry path runs.
+        log.warn('keepalive found a dead socket — reconnecting');
+        this._closeSocket();
+        this._scheduleRetry();
+        return;
+      }
+      this._subscribe();
+    }, KEEPALIVE_MS);
   }
 
   _scheduleRetry() {
