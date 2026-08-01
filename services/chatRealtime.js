@@ -91,17 +91,44 @@ class ChatRealtime {
     this._loopList();
     this._loopHeartbeat();
     this._startBus();
-    // Stop burning battery and requests while backgrounded; resync on return.
+
+    // Actually stop polling while backgrounded. This used only to resync on
+    // return, leaving every timer running — which is why "online" was dishonest.
+    //
+    // Presence is `chat_last_seen` within a 45s window, refreshed by
+    // _chat_touch_presence(), and that is called by the ORDINARY POLLING ROUTES
+    // (/chat/conversations, /chat/messages, /chat/typing) as well as
+    // /chat/heartbeat. So a backgrounded app polling every 6s kept reporting the
+    // user as online while they were looking at something else entirely.
+    // Stopping the heartbeat alone would not have fixed it.
+    //
+    // The bus stays connected on purpose: it costs nothing when idle, does not
+    // touch presence, and is what lets a call ring while the app is backgrounded.
     this.appSub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') { this._tickList(); this._tickThread(); }
+      if (!this.running) return;
+      if (state === 'active') {
+        this._loopList();
+        this._loopHeartbeat();
+        if (this.activeConversationId) this._loopThread();
+        this._tickList();
+        this._tickThread();
+      } else {
+        this._stopPolling();
+      }
     });
+  }
+
+  // Timers only — deliberately leaves `running` true and the bus up, so this is
+  // a pause rather than a teardown.
+  _stopPolling() {
+    clearTimeout(this.timer); clearTimeout(this.listTimer); clearInterval(this.heartTimer);
+    clearTimeout(this.listNudge);
+    this.timer = this.listTimer = this.heartTimer = this.listNudge = null;
   }
 
   stop() {
     this.running = false;
-    clearTimeout(this.timer); clearTimeout(this.listTimer); clearInterval(this.heartTimer);
-    clearTimeout(this.listNudge);
-    this.timer = this.listTimer = this.heartTimer = this.listNudge = null;
+    this._stopPolling();
     if (this.appSub) { this.appSub.remove(); this.appSub = null; }
     if (this.busSub) { this.busSub(); this.busSub = null; }
     bus.stop();
@@ -110,16 +137,51 @@ class ChatRealtime {
 
   // ── bus bridge ─────────────────────────────────────────────────────────────
 
-  // Forward the two thread events onto the existing contract. Everything else the
-  // bus carries (receipts, typing, calls) is either already covered by the poll's
-  // refetch window or consumed directly by callEngine, so it is ignored here
-  // rather than invented into an event shape no screen listens for.
+  // Bridge the bus onto the existing subscribe/emit contract.
+  //
+  // This used to forward only 'message' and 'update' and drop everything else,
+  // which quietly broke two features:
+  //
+  //   * READ RECEIPTS. 'read'/'delivered' are bus-only, so ticks never updated
+  //     when they happened — they changed later, whenever the 12s refetch window
+  //     came round, which reads as "ticks are unreliable".
+  //   * TYPING. ChatThreadScreen has always listened for a 'typing' event and
+  //     renders "…is typing", but the event never arrived, so the feature had
+  //     never worked in the app at all.
+  //
+  // The web client handles all three (chat_app.js `_onBus`), so this was purely
+  // an app-side gap. Call events stay ignored here on purpose — callEngine
+  // subscribes to the bus directly.
   _startBus() {
     this.busSub = bus.subscribe((event, payload) => {
-      if (event !== 'message' && event !== 'update') return;
       const conversationId = Number(payload?.conversation_id) || 0;
+      if (!conversationId) return;
+
+      // Receipts carry no message body, only how far the other side has got.
+      // Re-read the newest window rather than patching statuses by hand: the
+      // refetch already re-emits those messages as 'update' and the screen
+      // replaces by id, so ticks refresh with no new code path to get wrong.
+      // Same approach the web client takes (syncMessages()).
+      if (event === 'read' || event === 'delivered') {
+        if (conversationId === this.activeConversationId) this._refetchRecent();
+        else this._nudgeList();
+        return;
+      }
+
+      // Passed straight through; the screen owns the "stopped typing" timeout.
+      if (event === 'typing') {
+        this.emit('typing', {
+          conversationId,
+          typing: !!payload.typing,
+          name: payload.name || '',
+          userId: payload.user_id,
+        });
+        return;
+      }
+
+      if (event !== 'message' && event !== 'update') return;
       const message = payload?.message;
-      if (!conversationId || !message) return;
+      if (!message) return;
 
       if (event === 'message') {
         // Keep the poll cursor in step, or the next tick re-delivers this same
@@ -130,6 +192,20 @@ class ChatRealtime {
       this.emit(event, { conversationId, message });
     });
     bus.start();
+  }
+
+  // Re-read the newest window and republish it as updates. Shared by the receipt
+  // handler and the periodic refetch in _tickThread so there is one definition of
+  // "catch changes to messages already on screen".
+  async _refetchRecent() {
+    const convId = this.activeConversationId;
+    if (!convId) return;
+    try {
+      const recent = await chat.fetchMessages(convId, { limit: REFETCH_WINDOW });
+      recent.forEach((m) => this.emit('update', { conversationId: convId, message: m }));
+    } catch (e) {
+      log.warn('receipt refetch failed', e?.message);
+    }
   }
 
   // A new message changes the chat list too (preview, unread badge, order). Refresh
@@ -215,8 +291,7 @@ class ChatRealtime {
       this.sinceRefetch += 1;
       if (this.sinceRefetch >= REFETCH_EVERY) {
         this.sinceRefetch = 0;
-        const recent = await chat.fetchMessages(convId, { limit: REFETCH_WINDOW });
-        recent.forEach((m) => this.emit('update', { conversationId: convId, message: m }));
+        await this._refetchRecent();
       }
     } catch (e) {
       // A dead network mid-poll is normal and self-healing; don't spam the UI.

@@ -1360,8 +1360,18 @@ export class Chat369App extends Component {
             try { const r = await rpc('/chat/bus_channel', {}); if (r && r.channel) this.bus.addChannel(r.channel); } catch (e) {}
             await this.loadConversations(true); this.loadLists(); this.loadMe(); this.loadGmeet(); this.loadCalls();
         });
-        onMounted(() => { this._timer = setInterval(() => this.tick(), 6000); });
-        onWillUnmount(() => { if (this._timer) { clearInterval(this._timer); this._timer = null; } this._teardownCall(); });
+        onMounted(() => {
+            this._timer = setInterval(() => this.tick(), 6000);
+            // tick() skips while hidden (see there), so catch up the moment the
+            // tab comes back instead of waiting out the remaining interval.
+            this._onVis = () => { if (document.visibilityState === 'visible') this.tick(); };
+            document.addEventListener('visibilitychange', this._onVis);
+        });
+        onWillUnmount(() => {
+            if (this._timer) { clearInterval(this._timer); this._timer = null; }
+            if (this._onVis) { document.removeEventListener('visibilitychange', this._onVis); this._onVis = null; }
+            this._teardownCall();
+        });
         onPatched(() => {
             // Attach live call streams to their <video> elements once rendered.
             if (this.state.call) {
@@ -2850,6 +2860,19 @@ export class Chat369App extends Component {
     // Safety-net poll (the bus does the instant work). Refreshes the list + presence
     // and reconciles the open thread's ticks/reactions/edits every few seconds.
     async tick() {
+        // Skip the poll while the tab is hidden, so a buried tab does not keep
+        // claiming the user is online.
+        //
+        // Presence is chat_last_seen inside a 45s window, and it is refreshed by
+        // the ORDINARY polling routes (/chat/conversations, /chat/messages) — not
+        // only by an explicit heartbeat. So a background tab polling every 6s
+        // reported someone as present when they were not looking at the app at
+        // all. Browsers throttle background timers but do not stop them, so this
+        // has to be explicit. The app does the same on AppState (chatRealtime).
+        //
+        // The bus stays connected: it costs nothing idle, touches no presence, and
+        // is what lets a call still ring in a background tab.
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
         await this.loadConversations();
         if (this.state.selectedId) await this.syncMessages();
         this._callTick = (this._callTick || 0) + 1;

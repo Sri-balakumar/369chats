@@ -75,6 +75,22 @@ before calling it done. Where a rule is enforceable server-side (windows, permis
    shares it as a file, no PC required. `redact()` runs automatically on the way *into* the buffer
    (it used to be opt-in per call site) precisely because that buffer can leave the device.
 
+12. **Expo Go cannot run this app — ever.** Scanning a QR from `expo start` red-screens at launch:
+   `Invariant Violation: @react-native-community/cookies: import libraries to android`. That is not
+   a bug and not a regression. Expo Go is a fixed container and has none of this app's native
+   modules — `react-native-webrtc`, `@react-native-cookies/cookies`, `@notifee/react-native`.
+   Cookies just throws first, and its message still names the library's *old* package
+   (`@react-native-community/…`), which sends you hunting in the wrong place entirely.
+   **Always launch the installed 369Chats APK.** Calling, the bus and push exist only in a real build.
+
+13. **The websocket is a SECOND Odoo process, and it is now a service.** `/websocket` is served only
+   by the evented (gevent) worker on `gevent_port` (8072) — never by the main server on 8069. It runs
+   as the Windows service **`odoo-gevent-19.0`** (auto-start), via
+   `server\odoo-gevent.bat`. The wrapper exists because nssm mangles quoted paths containing spaces;
+   `gevent` must be argv[1] (that is what sets `odoo.evented`) and `--max-cron-threads=0` is
+   deliberate — cron in that worker blocks the gevent loop and takes the websocket down with it.
+   If that service is not running, calls silently never ring and nothing is logged anywhere.
+
 ---
 
 ## Deploying the Odoo module — verified working
