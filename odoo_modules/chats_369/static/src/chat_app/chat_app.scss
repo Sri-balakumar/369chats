@@ -1254,27 +1254,21 @@ $o369-green-deep: #0E8F53;
        this can touch signalling, and a bad rule shows up immediately instead of
        breaking a call. */
     .o369-calloverlay {
-        position: fixed; inset: 0; z-index: 3000; background: #0b1017; display: flex; overflow: hidden;
+        position: fixed; inset: 0; z-index: 3000; background: #0b141a; display: flex; overflow: hidden;
         animation: o369-fadein .18s ease;
     }
-    .o369-callremote { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #0b1017; }
+    .o369-callremote { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #0b141a; }
 
-    /* Wallpaper, not content: the avatar blown up and blurred, then dimmed so
-       white text stays readable over a light photo. Falls back to the flat dark
-       base when there is no avatar. */
-    .o369-callbg {
-        position: absolute; inset: -60px; z-index: 0;
-        background-size: cover; background-position: center;
-        filter: blur(42px) saturate(1.15); transform: scale(1.1);
-    }
-    .o369-callbg::after { content: ""; position: absolute; inset: 0; background: rgba(8,12,18,.58); }
+    /* NO blurred-avatar wallpaper. An earlier version blurred the contact's
+       avatar behind a scrim; WhatsApp uses a plain near-black screen, and for a
+       contact with no photo the blur turned a giant initials circle into a
+       coloured smear. Flat is both closer to the reference and more robust. */
 
     .o369-callremoteph { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
-        justify-content: flex-start; padding-top: 14vh; gap: 6px; color: #fff; z-index: 1; }
-    .o369-callremoteph .o369-avatarxl { width: 128px; height: 128px; font-size: 48px;
-        box-shadow: 0 10px 34px rgba(0,0,0,.45); }
-    .o369-callname { font-size: 26px; font-weight: 700; margin-top: 18px; }
-    .o369-callstatus { font-size: 15px; opacity: .72; }
+        justify-content: flex-start; padding-top: 16vh; color: #fff; z-index: 1; }
+    .o369-callremoteph .o369-avatarxl { width: 132px; height: 132px; font-size: 50px; }
+    .o369-callname { font-size: 26px; font-weight: 600; margin-top: 26px; }
+    .o369-callstatus { font-size: 15px; opacity: .6; margin-top: 6px; }
     .o369-calltop { position: absolute; top: 20px; left: 0; right: 0; text-align: center; color: #fff; font-size: 14px;
         text-shadow: 0 1px 4px rgba(0,0,0,.5); z-index: 2; }
     .o369-calllocal {
@@ -1283,37 +1277,44 @@ $o369-green-deep: #0E8F53;
         transform: scaleX(-1); border: 1px solid rgba(255,255,255,.35);
         &.o369-calllocal-off { visibility: hidden; }
     }
-    .o369-callctrls { position: absolute; left: 0; right: 0; bottom: 34px; display: flex; justify-content: center;
-        gap: 26px; z-index: 4; }
+    /* Grouped in one rounded translucent bar rather than floating loose on the
+       background. WhatsApp anchors its controls this way, and it is a large part
+       of why its screen looks composed rather than scattered. */
+    .o369-callctrls { position: absolute; left: 50%; transform: translateX(-50%); bottom: 34px;
+        display: flex; align-items: center; justify-content: space-evenly; gap: 22px; z-index: 4;
+        background: rgba(255,255,255,.10); border-radius: 40px; padding: 14px 22px; }
     .o369-callbtn {
-        width: 58px; height: 58px; border-radius: 50%; border: none; cursor: pointer; color: #fff;
-        background: rgba(255,255,255,.18); font-size: 21px; display: flex; align-items: center; justify-content: center;
+        width: 56px; height: 56px; border-radius: 50%; border: none; cursor: pointer; color: #fff;
+        background: rgba(255,255,255,.16); font-size: 21px; display: flex; align-items: center; justify-content: center;
         transition: background .15s, transform .1s;
-        &:hover { background: rgba(255,255,255,.28); }
+        &:hover { background: rgba(255,255,255,.26); }
         &:active { transform: scale(.94); }
         /* Engaged state inverts to a white pill — the same signal the app uses,
            and far clearer than dimming the icon. */
-        &.o369-callbtn-off { background: #fff; color: #10161f; }
+        &.o369-callbtn-off { background: #fff; color: #0b141a; }
     }
-    .o369-callend { background: #e5352b; &:hover { background: #cf2a20; } .fa { transform: rotate(135deg); } }
-    .o369-callaccept { background: #12B76A; &:hover { background: #0E8F53; } }
+    /* WhatsApp's actual colours. The previous #12B76A / #e5352b were close but
+       read as "generic app", which was exactly the complaint. */
+    .o369-callend { background: #EA0038; &:hover { background: #c80030; } .fa { transform: rotate(135deg); } }
+    .o369-callaccept { background: #25D366; &:hover { background: #1EB558; } }
 
     /* Incoming call — full screen, matching the app rather than a small card. */
-    .o369-incoming { position: fixed; inset: 0; z-index: 3200; background: #0b1017;
+    .o369-incoming { position: fixed; inset: 0; z-index: 3200; background: #0b141a;
         display: flex; align-items: center; justify-content: center; overflow: hidden;
         animation: o369-fadein .16s ease; }
     .o369-incomingcard { position: relative; z-index: 1; color: #fff; background: none; box-shadow: none;
-        border-radius: 0; padding: 0; display: flex; flex-direction: column; align-items: center; gap: 6px;
-        width: 100%; height: 100%; justify-content: flex-start; padding-top: 14vh;
+        border-radius: 0; padding: 0; display: flex; flex-direction: column; align-items: center;
+        width: 100%; height: 100%; justify-content: flex-start; padding-top: 16vh;
         animation: o369-fadein .18s ease; }
-    .o369-incomingav { width: 128px; height: 128px; font-size: 48px; margin-bottom: 6px;
-        box-shadow: 0 10px 34px rgba(0,0,0,.45); }
-    .o369-incomingname { font-size: 26px; font-weight: 700; margin-top: 12px; }
-    .o369-incomingsub { font-size: 15px; opacity: .72; }
-    /* Pushed to the bottom and far apart, so the wrong one is hard to hit. */
+    .o369-incomingav { width: 132px; height: 132px; font-size: 50px; }
+    .o369-incomingname { font-size: 26px; font-weight: 600; margin-top: 26px; }
+    .o369-incomingsub { font-size: 15px; opacity: .6; margin-top: 6px; }
+    /* Pushed to the bottom and far apart, so the wrong one is hard to hit.
+       No surface behind these, unlike the in-call bar. */
     .o369-incomingbtns { display: flex; gap: 0; justify-content: space-evenly;
-        position: absolute; left: 0; right: 0; bottom: 8vh; padding: 0 16%; }
-    .o369-incomingbtns .o369-callbtn { width: 68px; height: 68px; font-size: 25px; }
+        position: absolute; left: 0; right: 0; bottom: 8vh; padding: 0 16%;
+        background: none; border-radius: 0; }
+    .o369-incomingbtns .o369-callbtn { width: 70px; height: 70px; font-size: 26px; }
 
     /* ---- Calls tab ---- */
     .o369-callspane .o369-panehead { display: flex; align-items: center; justify-content: space-between; }

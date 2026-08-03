@@ -1206,8 +1206,6 @@ export class Chat369App extends Component {
 
             <!-- Incoming call -->
             <div class="o369-incoming" t-if="state.call and state.call.status === 'incoming'">
-                <!-- Blurred avatar wallpaper; absent avatar just leaves the dark base. -->
-                <div class="o369-callbg" t-if="state.call.avatar" t-attf-style="background-image:url({{state.call.avatar}})"/>
                 <div class="o369-incomingcard">
                     <div class="o369-avatar o369-avatarxl o369-incomingav"><img t-if="state.call.avatar" t-att-src="state.call.avatar"/><span t-else="" t-esc="initials(state.call.name)"/></div>
                     <div class="o369-incomingname" t-esc="state.call.name"/>
@@ -1222,10 +1220,6 @@ export class Chat369App extends Component {
             <!-- In-call overlay -->
             <div class="o369-calloverlay" t-if="state.call and state.call.status !== 'incoming'">
                 <video class="o369-callremote" t-ref="remoteVideo" autoplay="autoplay" playsinline="playsinline"/>
-                <!-- Wallpaper only while there is no remote picture to show. -->
-                <div class="o369-callbg"
-                     t-if="state.call.avatar and !(state.call.status === 'connected' and state.call.video)"
-                     t-attf-style="background-image:url({{state.call.avatar}})"/>
                 <div class="o369-callremoteph" t-if="!(state.call.status === 'connected' and state.call.video)">
                     <div class="o369-avatar o369-avatarxl"><img t-if="state.call.avatar" t-att-src="state.call.avatar"/><span t-else="" t-esc="initials(state.call.name)"/></div>
                     <div class="o369-callname" t-esc="state.call.name"/>

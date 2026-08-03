@@ -19,7 +19,6 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BlurView } from 'expo-blur';
 import { Avatar } from '../components/ui';
 import callEngine from '../services/callEngine';
 import { RADIUS, SPACING, themed } from '../theme';
@@ -132,25 +131,16 @@ export default function CallScreen() {
         />
       )}
 
-      {/* Backdrop for voice calls / pre-connect: the contact's own avatar blown
-          up and blurred behind a dark scrim. This is what gives the WhatsApp
-          look without shipping any artwork. expo-blur is already a dependency
-          (see screens/ConnectScreen.js). */}
-      {!showRemoteVideo && (
-        <View style={StyleSheet.absoluteFill}>
-          <View style={s.blurHost}>
-            <Avatar name={call.name} uri={call.avatar} size={520} />
-          </View>
-          <BlurView intensity={90} tint="dark" style={StyleSheet.absoluteFill} />
-          <View style={s.scrim} />
-        </View>
-      )}
+      {/* Identity on a flat dark background.
 
-      {/* Identity. Sits in the upper third rather than dead centre, so it never
-          collides with the controls and reads the way WhatsApp does. */}
+          There is deliberately NO blurred-avatar wallpaper here. An earlier
+          version blurred the contact's avatar behind a scrim, which is a
+          different product's idiom — WhatsApp uses a plain near-black screen —
+          and for a contact with no photo it blurred a giant initials circle into
+          a coloured smear. Flat is both closer to the reference and more robust. */}
       {!showRemoteVideo && (
-        <View style={[s.who, { paddingTop: insets.top + 72 }]}>
-          <Avatar name={call.name} uri={call.avatar} size={128} />
+        <View style={[s.who, { paddingTop: insets.top + 96 }]}>
+          <Avatar name={call.name} uri={call.avatar} size={132} />
           <Text style={s.name} numberOfLines={1}>{call.name || 'Unknown'}</Text>
           <Text style={s.status}>{statusLabel(call)}</Text>
         </View>
@@ -191,7 +181,10 @@ export default function CallScreen() {
               onPress={() => callEngine.accept()} />
           </View>
         ) : (
-          <View style={s.ctrlRow}>
+          // Grouped in a rounded translucent bar rather than floating loose on
+          // the background. WhatsApp anchors its controls this way, and it is a
+          // large part of why its screen reads as composed rather than scattered.
+          <View style={s.ctrlBar}>
             <RoundBtn
               icon={muted ? 'mic-off' : 'mic'}
               tone={muted ? 'active' : 'glass'}
@@ -223,13 +216,15 @@ export default function CallScreen() {
 // is how WhatsApp shows mute/camera-off engaged — far clearer than a text label.
 function RoundBtn({ icon, tone, onPress, label, a11y, rotate = false, size = 'md' }) {
   const lg = size === 'lg';
-  const dim = lg ? 68 : 58;
+  const dim = lg ? 70 : 56;
+  // WhatsApp's actual accept/decline colours. The previous #12B76A / #E5352B
+  // were close but read as "generic app", which was the whole complaint.
   const bg =
-    tone === 'danger' ? '#E5352B'
-      : tone === 'accept' ? '#12B76A'
+    tone === 'danger' ? '#EA0038'
+      : tone === 'accept' ? '#25D366'
         : tone === 'active' ? '#FFFFFF'
-          : 'rgba(255,255,255,0.18)';
-  const fg = tone === 'active' ? '#10161F' : '#FFFFFF';
+          : 'rgba(255,255,255,0.16)';
+  const fg = tone === 'active' ? '#0B141A' : '#FFFFFF';
   return (
     <View style={s.ctrlWrap}>
       <TouchableOpacity
@@ -254,29 +249,21 @@ function RoundBtn({ icon, tone, onPress, label, a11y, rotate = false, size = 'md
 const s = themed(() => ({
   // elevation as well as zIndex: on Android a sibling with its own elevation can
   // otherwise paint over this however late it sits in the tree.
+  // Flat near-black with a slight blue cast — WhatsApp's dark call surface.
+  // No blur, no gradient, no avatar behind it.
   root: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#0B1017',
+    backgroundColor: '#0B141A',
     justifyContent: 'space-between',
     zIndex: 2000, elevation: 2000,
   },
 
-  // The blown-up avatar behind the blur. Centred and clipped; it is wallpaper,
-  // not content, so it is deliberately allowed to overflow.
-  blurHost: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center', justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  // Blur alone leaves light avatars too bright for white text to sit on.
-  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(8,12,18,0.55)' },
-
-  who: { alignItems: 'center', paddingHorizontal: SPACING.xl, gap: SPACING.xs },
+  who: { alignItems: 'center', paddingHorizontal: SPACING.xl },
   name: {
-    fontSize: 26, fontWeight: '700', color: '#FFFFFF',
-    marginTop: SPACING.xl, textAlign: 'center',
+    fontSize: 26, fontWeight: '600', color: '#FFFFFF',
+    marginTop: 26, textAlign: 'center',
   },
-  status: { fontSize: 15, color: 'rgba(255,255,255,0.72)', marginTop: 2 },
+  status: { fontSize: 15, color: 'rgba(255,255,255,0.6)', marginTop: 6 },
 
   videoHud: {
     position: 'absolute', left: SPACING.xl, right: SPACING.xl,
@@ -295,15 +282,24 @@ const s = themed(() => ({
   self: { flex: 1 },
 
   controls: { paddingHorizontal: SPACING.xl },
-  // In-call controls sit close together as one cluster; answer/decline are pushed
-  // apart so the wrong one is hard to hit in a hurry.
-  ctrlRow: { flexDirection: 'row', justifyContent: 'center', gap: SPACING.xl },
+
+  // One grouped surface rather than loose circles. This is the shape that makes
+  // the screen read as WhatsApp — the previous version floated naked buttons on
+  // the background, which looked scattered however well-sized they were.
+  ctrlBar: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-evenly',
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    borderRadius: 40,
+    paddingVertical: 14, paddingHorizontal: SPACING.md,
+  },
+  // Answer/decline sit far apart so the wrong one is hard to hit in a hurry, and
+  // deliberately have no surface behind them.
   answerRow: { flexDirection: 'row', justifyContent: 'space-evenly' },
 
-  ctrlWrap: { alignItems: 'center', gap: SPACING.sm },
+  ctrlWrap: { alignItems: 'center', gap: SPACING.md },
   ctrl: {
     alignItems: 'center', justifyContent: 'center',
     ...(Platform.OS === 'android' ? { elevation: 6 } : {}),
   },
-  ctrlLabel: { fontSize: 12.5, color: 'rgba(255,255,255,0.85)', fontWeight: '600' },
+  ctrlLabel: { fontSize: 13, color: 'rgba(255,255,255,0.75)', fontWeight: '500' },
 }));
