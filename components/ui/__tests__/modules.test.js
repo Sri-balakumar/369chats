@@ -51,6 +51,10 @@ const MODULES = [
   '../../chat/BottomTabs',
   '../../chat/CropEditor',
   '../../chat/NowPlayingBar',
+  '../../chat/MuteSheet',
+  '../../chat/VideoThumb',
+  '../../chat/SwipeTabs',
+  '../../chat/DialPad',
   // ── shell components ──
   '../../GradientBackground',
   '../../ScreenTransition',
@@ -87,6 +91,8 @@ const MODULES = [
   '../../../screens/SignUpScreen',
   '../../../screens/ForgotPasswordScreen',
   // ── non-UI modules that still run code at import time ──
+  '../../../hooks/usePlaceCall',
+  '../../../hooks/useBackIntercept',
   '../../../services/chat',
   '../../../services/chatRealtime',
   '../../../utils/openAttachment',

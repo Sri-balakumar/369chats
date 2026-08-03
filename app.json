@@ -74,7 +74,7 @@
           "image": "./assets/logo369.png",
           "imageWidth": 220,
           "resizeMode": "contain",
-          "backgroundColor": "#EBF1FC"
+          "backgroundColor": "#FFFFFF"
         }
       ],
       "expo-audio",

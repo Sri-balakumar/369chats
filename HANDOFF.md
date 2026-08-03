@@ -120,8 +120,9 @@ but NOT sufficient — see the box above. Then **Ctrl+Shift+R** — Odoo serves 
 Syntax-check first: `python -m py_compile` for controllers,
 `node --input-type=module --check` for `chat_app.js`.
 
-**Currently undeployed:** `chat_api.py`, `chat_app.js` and `chat_app.scss` are committed but differ
-from the addons copy (media-list `mimetype`, presence/`about` on contact info).
+**Deploy state:** the addons copy matches `odoo_modules/` as of 2026-08-03 — deployed and verified
+(`state = installed`, `write_date` bumped). Web changes in that deploy: mute from the header ⋮ and
+the info drawer, document file sizes, and the 📷/🎤 preview icon in list rows.
 
 To check whether a deploy is even needed: `diff -rq <source> <addons copy>`.
 
@@ -163,7 +164,7 @@ n/N stepper, audio scrub + 1×/1.5×/2× + clean stop, now-playing bar on the ch
 centred, About presets, log out in ⋮, `+` on the tab-pill line, notification tap opens the chat,
 scheduled calls (create/cancel), un-favourite, attach-sheet photo permission fixed.
 
-**Shipped this session (module):** 8 missing `ir.rule` records (lists/nicknames/poll votes/polls/
+**Shipped earlier (module):** 8 missing `ir.rule` records (lists/nicknames/poll votes/polls/
 options/reactions/calls/schedules had **none**); media route now checks `left_at` +
 `hidden_for_user_ids` + `expire_at`; group-avatar membership check + private caching; `/chat/call/ice`
 requires membership before releasing TURN creds; `set_nickname` relationship check; `create_list`
@@ -171,54 +172,100 @@ int() guard; 24h delete-for-everyone; call relay `is_group` + `call_id` validati
 `{status:false}` returns given messages; `_push_call` payload now carries `chat_id`/`call_id`/`video`
 and honours the kill-switch + per-user prefs; trigger word no longer posted as a message.
 
+### Realtime, presence and receipts — how they actually work now
+
+Worth reading before changing any of it; several of these were bugs that looked like other things.
+
+* **Two transports, one contract.** `services/odooBus.js` (websocket) and `services/chatRealtime.js`
+  (polling) both feed the same `subscribe`/`emit` contract, so screens cannot tell which delivered an
+  event. **Keep both** — the bus is best-effort and the web client keeps its own tick for the same
+  reason. Poll cadence was deliberately *not* slowed, so a bus bug reads as "slightly late" rather
+  than "silently broken".
+* **Receipts and typing are bus-only.** `chatRealtime` forwards `read`/`delivered` (→ immediate
+  refetch, which re-emits as `update` so ticks refresh) and `typing`. An earlier version forwarded
+  only `message`/`update` and dropped the rest, which made ticks look unreliable and meant typing
+  indicators had **never** worked in the app.
+* **Presence is refreshed by ordinary polling routes**, not just `/chat/heartbeat` —
+  `/chat/conversations`, `/chat/messages` and `/chat/typing` all call `_chat_touch_presence()`. So
+  "stop the heartbeat" does **not** stop someone appearing online; all polling must stop. It now does
+  on `AppState` background (app) and `visibilitychange` (web).
+* **Leaving is reported explicitly.** Presence can otherwise only *lapse*, leaving up to 45s of stale
+  "online". Both clients POST `away: true`; the web uses `sendBeacon` on `pagehide` because a normal
+  rpc is abandoned when the page unloads. `CHAT_ONLINE_WINDOW` lives on `res_users` (the model owning
+  `chat_last_seen`) and the controller imports it — `_chat_mark_away()` backdates past exactly that
+  value, so two copies of the number would drift into a subtle bug.
+* **The bus deliberately stays connected while backgrounded.** It is idle-cheap, touches no presence,
+  and is what lets a call ring when the app is not in front.
+
+### Call history cards
+
+A finished call is a `chat.message` with `is_call` / `call_video` / `call_missed` flags (reusing
+`duration`), following the `is_meet` precedent — **flags, not prose**. `author_id` is the CALLER, so
+alignment falls out of the existing mine/theirs logic: your call renders right, theirs left. Both
+clients render the same card (icon badge, title, duration); `body` is only a fallback.
+
+The outcome used to be written as an emoji into `body`, so clients had to parse text and voice/video
+were indistinguishable. 25 historical records were backfilled from `chat_call` on 2026-08-03.
+
 ---
 
-## CALLING — written, NOT yet confirmed on a device
+## CALLING — voice WORKS; video is broken
 
-The server side was always complete and is unchanged. The app side is now written:
+**Voice calling is confirmed working on hardware** (2026-08-01: `chat_call` id 22, answered, 97s,
+with offers/answers/38 ICE candidates on the bus). Getting there took six separate faults, each
+hiding the next. **Read this list before touching anything call-related** — every one of them
+presented as "calls just don't ring", and four of them were invisible.
 
-| | |
-|---|---|
-| `services/odooBus.js` | websocket bus client (cookie → `/chat/bus_channel` → `/websocket`) |
-| `services/callEngine.js` | WebRTC lifecycle, ported from the web client |
-| `services/chat.js` | the six `/chat/call/*` signalling wrappers |
-| `screens/CallScreen.js` | incoming / in-call overlay, mounted in `App.js` |
-| `ChatThreadScreen` header | voice + video buttons, gated like the web `canCall()` |
+| # | Fault | Why it was invisible |
+|---|---|---|
+| 1 | `expo-asset@57` autolinked into an SDK 54 app | jest and `expo export` both pass — neither looks at native autolinking. Crashed at launch. |
+| 2 | **No websocket at all** — `gevent` not installed, 8072 not running | `/websocket` 404'd; everything else worked fine |
+| 3 | `whatsapp_neonize` froze the gevent loop | Process alive, port open, sockets ESTABLISHED, nothing logged |
+| 4 | Both clients dialled 8069 instead of 8072 | A browser never notices — nginx normally proxies `/websocket` across |
+| 5 | One tap fired **five** `/chat/call/start` | Five `call_id`s; the accepted one never matched the stored one, so no offer was created |
+| 6 | **Socket went deaf after 40s** | `onclose` never fired; TCP still read ESTABLISHED on the device |
 
-**This needs a NEW BUILD to run at all** — `react-native-webrtc` is native code (libwebrtc), so
-the existing APK cannot execute any of it. The APK at `C:\Projects\Alphalize APK's\369Chats\`
-predates this work: verified as `com.alphalize.chats369` with 64 native libs and **zero** WebRTC
-ones. That same APK also crashes on launch (gotcha 10), so the next build carries both the
-`expo-asset` fix and calling. Confirm before building that autolinking picks up the native modules:
+Number 6 is the one to internalise. **Odoo drops an idle websocket after 40s** (`INACTIVITY_TIMEOUT`
+in `bus/websocket.py`) **and never tells the client.** A freshly restarted app therefore works for
+exactly 40 seconds — so every check run right after a restart passes, and every call a minute later
+fails for reasons that look unrelated. `services/odooBus.js` now re-subscribes every 30s to stay
+inside that window; the subscribe frame is idempotent (Odoo's `Dispatcher.subscribe` overwrites).
 
-```bash
-npx expo-modules-autolinking resolve -p android --json            # expo-asset must be 12.0.13
-npx expo-modules-autolinking react-native-config -p android --json # webrtc + cookies must be LINKED
-```
-(Community modules like `react-native-webrtc` do **not** appear in the first command — that lists
-Expo modules only. Checking the wrong one makes them look missing when they are fine.)
+Two other traps from the same hunt:
 
-Two things remain outside the code:
+* **`/websocket` needs `?version=`.** `bus/websocket.py::_serve_forever` closes any socket whose
+  version does not match `_VERSION` (currently `19.0-2`), and RN sends a User-Agent so it counts as
+  a browser. The close is CLEAN, so nothing errors — you just get silence. `/chat/bus_channel`
+  appends the version from the server's own constant so an Odoo upgrade cannot silently break it.
+* **Diagnose from the SERVER, not the app.** Two temporary `_logger.info` lines in
+  `bus/websocket.py` (`subscribe` and `_dispatch_bus_notifications`, logging channels + `session.uid`
+  + `len(notifications)`) answered in minutes what days of app-side guessing could not. Back the file
+  up, and revert it afterwards.
 
-1. **A TURN server** — `_ice_servers()` returns Google STUN only; `chats_369.turn_url` /
-   `turn_user` / `turn_cred` are unset and there is **no admin UI for them** (Google Meet has one,
-   calls have nothing). Calls will work on one wifi and **fail on mobile data** until this exists.
-   Expect that failure; it is not a bug in the port.
-2. **Device verification.** Nothing below has been seen working on hardware.
+### Video calls are broken — open bug
 
-**Verify in this order — each step is worthless if the previous one failed:**
+Voice works; **video ends ~4s after a complete negotiation**, `duration 0`, never reaching
+`connected` (`chat_call` ids 23, 24). Signalling is fine — offer, answer, 22 ICE all present on the
+bus. Two clues, neither conclusive:
 
-1. **The bus, before any call.** Log in, send a message from the web client, and confirm it appears
-   in the app instantly rather than on the next 3s poll. If it does not, the cookie handshake failed
-   and no call can ring. `adb logcat` and look for the `Bus` logger — it warns explicitly on
-   `no session_id cookie`.
-2. **App ↔ web on one wifi.** The web client is the known-good peer, so a failure here is the app's.
-3. **App ↔ app**, then across networks (expect failure until TURN).
+* **No camera capture in logcat at all.** `WebRtcAudioTrack`/`WebRtcAudioRecord` appear; there is no
+  `CameraCapturer` / `Camera2Session` / `VideoCapturer` for our process. Teardown was clean
+  (`PeerConnection.dispose()`), not a crash.
+* **The tablet has 1.9 GB RAM with ~390 MB free**, and Samsung's `ChimeraAggressivePolicyHandler`
+  is killing the app. A camera plus H.264 encoder may simply not fit. This may be a hardware limit
+  rather than a bug.
 
-Known gaps, deliberate: no speaker/earpiece toggle (needs another native module, and the test
-tablet has no earpiece anyway); the incoming push is an ordinary Expo banner, not a VoIP push, so
-it **cannot wake a killed app into a ringing UI** — ringing works while the app is running.
-iOS additionally needs PushKit/CallKit, which is absent.
+**Reproduce once with the in-app debug log on before writing any fix.** The log shows whether
+`getUserMedia` returned a video track, which splits "camera never started" from "connection failed"
+— two completely different fixes.
+
+### Still outside the code
+
+* **TURN** — `_ice_servers()` returns Google STUN only; `chats_369.turn_url` / `turn_user` /
+  `turn_cred` are unset with **no admin UI**. Calls work on one wifi and **fail across networks**.
+* No speaker/earpiece toggle (needs `react-native-incall-manager`; the test tablet has no earpiece).
+* The incoming push is an ordinary Expo banner, not a VoIP push, so it **cannot wake a killed app
+  into a ringing UI**. Ringing works while the app is running. iOS needs PushKit/CallKit, absent.
 
 ## App identity — renamed off kra-kpi
 

@@ -1,184 +1,89 @@
-// SPLASH / INTRO — matches the 369 ai.Biz hero mockup. Floating feature cards,
-// the 369 logo, a headline, the six-segment wheel (spins then settles), and the
-// alphalize logo on a wave. Built for a polished intro-video feel, then fades
-// into the login screen.
+// SPLASH / INTRO — plays the branded animation, then hands off to the app.
 //
-// The wheel used to spell out SMART/KPI. The geometry is the design — six 60°
-// segments, labels on a ring, a disc in the middle — so it stayed; only the words
-// changed. Relabel SEG below to whatever the product is about.
-import React, { useEffect, useRef } from 'react';
-import { View, Text, Image, Animated, Easing, StyleSheet, Dimensions, StatusBar as RNStatusBar } from 'react-native';
+// This replaced a hand-built animated intro (floating cards, a spinning six-segment
+// wheel, waves). The video is the brand asset now, so the drawing code is gone
+// rather than left dormant.
+//
+// Two things worth knowing:
+//
+//   • There are TWO splashes. The NATIVE one (expo-splash-screen, configured in
+//     app.json) covers the time before JS is running and can only ever be a static
+//     image — no video, on either platform. This screen is the JS one, which takes
+//     over once React mounts. They are set to the same white background so the
+//     handoff is invisible; changing one without the other brings back a colour
+//     flash on launch.
+//
+//   • onDone must fire exactly once and must not depend on the video. A splash
+//     that can hang is a splash that can brick the app, so a failed load, a
+//     missing codec or a stalled decode all still fall through the timeout below.
+import React, { useEffect, useRef, useCallback } from 'react';
+import { View, StyleSheet, Dimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import Svg, { Path } from 'react-native-svg';
-import { COLORS, themed } from '../theme';
+import { useVideoPlayer, VideoView } from 'expo-video';
 
-const { width: SW } = Dimensions.get('window');
-const TOP = (RNStatusBar.currentHeight || 0);
+const { width: SW, height: SH } = Dimensions.get('window');
 
-// Wheel segments: colour, label, in-segment icon, centre angle (60° apart).
-const SEG = [
-  { label: 'Secure', color: COLORS.amber, icon: '🔒', a: -90 },
-  { label: 'Fast', color: COLORS.slate700, icon: '⚡', a: -30 },
-  { label: 'Simple', color: COLORS.pink, icon: '💡', a: 30 },
-  { label: 'Built for\nyour team', color: COLORS.violet, icon: '👥', a: 90, wide: true },
-  { label: 'Anywhere', color: COLORS.cyan, icon: '🌐', a: 150 },
-  { label: 'Reliable', color: COLORS.green, icon: '🛡️', a: 210 },
-];
+// The animation sits centred at a comfortable size rather than filling the
+// screen — full-bleed made the mark enormous on a tablet. Capped against height
+// too so a short landscape window cannot crop it.
+const VIDEO = Math.min(SW * 0.62, SH * 0.4);
 
-const WSIZE = Math.min(300, SW - 40);   // wheel container
-const C = WSIZE / 2;
-const WHEEL = WSIZE * 0.62;             // coloured disc box
-const WC = WHEEL / 2;
-const R = WC - 4;
-const rad = (d) => (Math.PI / 180) * d;
+// Hard ceiling. The animation is ~4s; this only exists so a video that never
+// reports completion cannot strand the user on a blank screen.
+const MAX_MS = 6000;
 
-function sector(center) {
-  const s = rad(center - 30), e = rad(center + 30);
-  const x1 = WC + R * Math.cos(s), y1 = WC + R * Math.sin(s);
-  const x2 = WC + R * Math.cos(e), y2 = WC + R * Math.sin(e);
-  return `M${WC},${WC} L${x1},${y1} A${R},${R} 0 0 1 ${x2},${y2} Z`;
-}
-
-// Top floating feature cards (icon + corner position).
-const CARDS = [
-  { icon: '📈', x: 0.10, y: 0.02 },
-  { icon: '📋', x: 0.74, y: 0.10 },
-  { icon: '🎯', x: 0.06, y: 0.24 },
-  { icon: '👥', x: 0.78, y: 0.30 },
-];
+// Held after the video ends so the last frame is not snatched away mid-beat.
+const SETTLE_MS = 150;
 
 export default function SplashScreen({ onDone }) {
-  const spin = useRef(new Animated.Value(0)).current;
-  const fade = useRef(new Animated.Value(0)).current;
-  const up = useRef(new Animated.Value(0)).current;     // labels/heading rise-in
-  const float = useRef(new Animated.Value(0)).current;  // cards gentle float
+  const doneRef = useRef(false);
 
-  useEffect(() => {
-    Animated.timing(fade, { toValue: 1, duration: 500, useNativeDriver: true }).start();
-    Animated.timing(spin, { toValue: 1, duration: 2600, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
-    Animated.timing(up, { toValue: 1, delay: 900, duration: 800, useNativeDriver: true }).start();
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(float, { toValue: 1, duration: 1600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(float, { toValue: 0, duration: 1600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-      ])
-    ).start();
-    const t = setTimeout(() => {
-      Animated.timing(fade, { toValue: 0, duration: 500, useNativeDriver: true }).start(() => onDone && onDone());
-    }, 4600);
-    return () => clearTimeout(t);
+  // Guarded so playToEnd, an error and the timeout can all race harmlessly.
+  const finish = useCallback(() => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    onDone?.();
   }, [onDone]);
 
-  const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '1080deg'] });
-  const rise = up.interpolate({ inputRange: [0, 1], outputRange: [16, 0] });
-  const floatY = float.interpolate({ inputRange: [0, 1], outputRange: [0, -8] });
+  const player = useVideoPlayer(require('../assets/splash369.mp4'), (p) => {
+    p.loop = false;
+    p.muted = true;      // a launch animation that makes noise is a bug report
+    p.play();
+  });
+
+  useEffect(() => {
+    // expo-video's SharedObject listeners; `playToEnd` is the completion signal.
+    const end = player.addListener('playToEnd', () => setTimeout(finish, SETTLE_MS));
+    // A source that fails to load reports through statusChange, not playToEnd.
+    const status = player.addListener('statusChange', ({ status: st, error }) => {
+      if (st === 'error' || error) finish();
+    });
+    const t = setTimeout(finish, MAX_MS);
+    return () => {
+      clearTimeout(t);
+      end?.remove?.();
+      status?.remove?.();
+    };
+  }, [player, finish]);
 
   return (
-    <Animated.View style={[s.root, { opacity: fade }]}>
+    <View style={s.root}>
       <StatusBar style="dark" />
-
-      {/* ---------- TOP: floating cards + 369 logo ---------- */}
-      <View style={s.top}>
-        {CARDS.map((c, i) => (
-          <Animated.View
-            key={i}
-            style={[s.card, { left: c.x * SW, top: TOP + 10 + c.y * 360, transform: [{ translateY: floatY }], opacity: fade }]}
-          >
-            <Text style={s.cardIcon}>{c.icon}</Text>
-          </Animated.View>
-        ))}
-        <Image source={require('../assets/logo369.png')} style={s.logo369} resizeMode="contain" />
-      </View>
-
-      {/* soft wave under the top */}
-      <Svg width="100%" height="46" viewBox="0 0 400 46" preserveAspectRatio="none">
-        <Path d="M0,20 C90,46 150,4 220,20 C300,40 340,10 400,24 L400,46 L0,46 Z" fill={COLORS.tintBg} />
-      </Svg>
-
-      {/* ---------- HEADLINE ---------- */}
-      <Animated.View style={{ alignItems: 'center', opacity: up, transform: [{ translateY: rise }] }}>
-        <Text style={s.h1}>Connect. Share.</Text>
-        <Text style={s.h1}>
-          <Text style={{ color: COLORS.cyan }}>Deliver. </Text>
-          <Text style={{ color: COLORS.amber }}>Grow.</Text>
-        </Text>
-        <View style={s.hUnderline} />
-      </Animated.View>
-
-      {/* ---------- WHEEL ---------- */}
-      <View style={{ width: WSIZE, height: WSIZE, alignSelf: 'center', marginTop: 8 }}>
-        {/* labels with a colour dot */}
-        {SEG.map((g) => {
-          const lx = C + (WC + 30) * Math.cos(rad(g.a));
-          const ly = C + (WC + 30) * Math.sin(rad(g.a));
-          const w = g.wide ? 150 : 110;
-          return (
-            <Animated.View key={g.label} style={[s.labelWrap, { width: w, left: lx - w / 2, top: ly - 16, opacity: up }]}>
-              <View style={[s.dot, { backgroundColor: g.color }]} />
-              <Text style={[s.label, { color: g.color }]}>{g.label}</Text>
-            </Animated.View>
-          );
-        })}
-
-        {/* spinning disc + icons */}
-        <Animated.View style={[s.wheel, { transform: [{ rotate }] }]}>
-          <Svg width={WHEEL} height={WHEEL} viewBox={`0 0 ${WHEEL} ${WHEEL}`}>
-            {/* soft base shadow so the wheel reads as raised */}
-            <Path d={`M${WC},${WC} m-${R},0 a${R},${R} 0 1,0 ${R * 2},0 a${R},${R} 0 1,0 -${R * 2},0`} fill={COLORS.line} opacity={0.5} />
-            {SEG.map((g) => (
-              <Path key={g.label} d={sector(g.a)} fill={g.color} stroke={COLORS.slate50} strokeWidth={5} strokeLinejoin="round" />
-            ))}
-          </Svg>
-          {SEG.map((g) => {
-            const ix = WC + (WC * 0.6) * Math.cos(rad(g.a));
-            const iy = WC + (WC * 0.6) * Math.sin(rad(g.a));
-            return <Text key={g.label} style={[s.wIcon, { left: ix - 14, top: iy - 15 }]}>{g.icon}</Text>;
-          })}
-        </Animated.View>
-
-        {/* centre disc */}
-        <View style={s.center} pointerEvents="none">
-          <View style={s.centerCircle}><Text style={s.centerTxt}>369</Text></View>
-        </View>
-      </View>
-
-      {/* ---------- BOTTOM: wave + alphalize ---------- */}
-      <View style={s.bottom}>
-        <Svg width="100%" height="70" viewBox="0 0 400 70" preserveAspectRatio="none" style={StyleSheet.absoluteFill}>
-          <Path d="M0,30 C90,70 150,6 220,30 C300,58 340,18 400,34 L400,70 L0,70 Z" fill={COLORS.tintBg} />
-        </Svg>
-        <Image source={require('../assets/alphalize.png')} style={s.alpha} resizeMode="contain" />
-      </View>
-    </Animated.View>
+      <VideoView
+        style={s.video}
+        player={player}
+        contentFit="contain"
+        nativeControls={false}
+        allowsFullscreen={false}
+        allowsPictureInPicture={false}
+      />
+    </View>
   );
 }
 
-const s = themed((C) => ({
-  root: { flex: 1, backgroundColor: COLORS.slate50 },
-  top: { alignItems: 'center', paddingTop: TOP + 18, height: 300, justifyContent: 'center' },
-  card: {
-    position: 'absolute', width: 54, height: 54, borderRadius: 16, backgroundColor: COLORS.card,
-    alignItems: 'center', justifyContent: 'center',
-    shadowColor: COLORS.slate700, shadowOpacity: 0.14, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 4,
-  },
-  cardIcon: { fontSize: 24 },
-  logo369: { width: Math.min(250, SW - 90), height: 175 },
-
-  h1: { fontSize: 25, fontWeight: '900', color: C.navy, textAlign: 'center', lineHeight: 32 },
-  hUnderline: { width: 70, height: 4, borderRadius: 2, backgroundColor: COLORS.cyan, marginTop: 8 },
-
-  wheel: { position: 'absolute', left: (WSIZE - WHEEL) / 2, top: (WSIZE - WHEEL) / 2, width: WHEEL, height: WHEEL },
-  wIcon: { position: 'absolute', fontSize: 22, width: 28, textAlign: 'center' },
-  labelWrap: { position: 'absolute', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
-  dot: { width: 7, height: 7, borderRadius: 4 },
-  label: { fontSize: 12, fontWeight: '800', textAlign: 'center', lineHeight: 15 },
-  center: { position: 'absolute', left: C - WC * 0.42, top: C - WC * 0.42, width: WC * 0.84, height: WC * 0.84, alignItems: 'center', justifyContent: 'center' },
-  centerCircle: {
-    width: '100%', height: '100%', borderRadius: 999, backgroundColor: COLORS.card, alignItems: 'center', justifyContent: 'center',
-    shadowColor: COLORS.shadow, shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6,
-  },
-  centerTxt: { fontSize: 24, fontWeight: '900', color: C.navy, letterSpacing: 1 },
-
-  bottom: { flex: 1, justifyContent: 'flex-end', alignItems: 'center', minHeight: 90 },
-  alpha: { width: 180, height: 50, marginBottom: 20 },
-}));
+// Not `themed()` — the video has a baked-in white background, so this screen is
+// deliberately the one place that does not follow the app theme.
+const s = StyleSheet.create({
+  root: { flex: 1, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  video: { width: VIDEO, height: VIDEO },
+});
