@@ -28,6 +28,8 @@ import ContactInfoScreen from './screens/ContactInfoScreen';
 import CallsScreen from './screens/CallsScreen';
 import CallScreen from './screens/CallScreen';
 import BottomTabs from './components/chat/BottomTabs';
+import SwipeTabs from './components/chat/SwipeTabs';
+import { runBackIntercepts } from './hooks/useBackIntercept';
 import ChatSearchScreen from './screens/ChatSearchScreen';
 import ChatMediaScreen from './screens/ChatMediaScreen';
 import StarredScreen from './screens/StarredScreen';
@@ -288,6 +290,10 @@ function AppInner() {
   // Returning true from the handler tells Android we handled the event.
   useEffect(() => {
     const onBack = () => {
+      // Anything that is NOT a route gets first refusal: the archive, a message
+      // selection, an in-tree overlay like ConfirmDialog. Without this, back
+      // from the archive found no route to pop and closed the app.
+      if (runBackIntercepts()) return true;
       // The chat screens are a stack, so hardware back must walk it rather than
       // jumping to the root — otherwise leaving a thread exits the whole chat area.
       if (user && appScreen === 'groupmanage') { setAppScreen('chatinfo'); return true; }
@@ -473,7 +479,6 @@ function AppInner() {
             // Media opens the same gallery the thread ⋮ uses; mediaFrom sends back
             // here rather than past this screen to the thread.
             onOpenMedia={() => { setMediaFrom('chatinfo'); setAppScreen('chatmedia'); }}
-            onOpenGmeet={() => { setGmeetFrom('chatinfo'); setAppScreen('gmeetsettings'); }}
             // Messaging a group member switches the open thread to that 1:1.
             onOpenChat={(conv) => { setActiveChat(conv); setFocusId(null); setAppScreen('chat'); }}
             // Left/deleted → the thread is gone, so return to the list.
@@ -596,15 +601,29 @@ function AppInner() {
     // survives.
     return (
       <View style={{ flex: 1 }}>
-        <ScreenTransition screenKey={`${appScreen}:${themeKey}`}>
-          {renderScreen()}
-        </ScreenTransition>
-        {atRoot && (
-          <BottomTabs
-            active={appScreen}
-            onChange={setAppScreen}
-            counts={{ chats: chatUnread }}
-          />
+        {/* Swipe Chats ⇄ Calls, on the two root tabs only — anywhere else a
+            horizontal swipe would fight the back gesture. This wraps the screen
+            AND the tab bar so the gesture works over the pill too, and sits
+            outside ScreenTransition so a swipe is never interrupted by the
+            enter animation it just triggered. */}
+        {atRoot ? (
+          <SwipeTabs
+            onLeft={() => appScreen === 'chats' && setAppScreen('calls')}
+            onRight={() => appScreen === 'calls' && setAppScreen('chats')}
+          >
+            <ScreenTransition screenKey={`${appScreen}:${themeKey}`}>
+              {renderScreen()}
+            </ScreenTransition>
+            <BottomTabs
+              active={appScreen}
+              onChange={setAppScreen}
+              counts={{ chats: chatUnread }}
+            />
+          </SwipeTabs>
+        ) : (
+          <ScreenTransition screenKey={`${appScreen}:${themeKey}`}>
+            {renderScreen()}
+          </ScreenTransition>
         )}
         {/* Last sibling and outside ScreenTransition: a call covers the whole app
             and must not be unmounted by a navigation. Renders null when idle. */}

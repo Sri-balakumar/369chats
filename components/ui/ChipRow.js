@@ -2,13 +2,24 @@
 // { key, label, count? }; the active one fills with the primary colour.
 //
 // Horizontal FlatList rather than a ScrollView so long filter sets stay virtualised.
+//
+// The touch handlers below hold off the Chats⇄Calls swipe while a finger is on
+// this strip. That swipe runs in the capture phase — the only way to catch a
+// gesture starting on a scrollable — which would otherwise outrank this list and
+// switch tabs instead of scrolling the chips. See components/chat/SwipeTabs.
 import React from 'react';
 import { View, Text, TouchableOpacity, FlatList, StyleSheet } from 'react-native';
+import { lockSwipe, unlockSwipe } from '../chat/SwipeTabs';
 import { COLORS, RADIUS, SPACING, themed } from '../../theme';
 
 export default function ChipRow({ chips, value, onChange, onLongPress, style }) {
   return (
-    <View style={[s.row, style]}>
+    <View
+      style={[s.row, style]}
+      onTouchStart={lockSwipe}
+      onTouchEnd={unlockSwipe}
+      onTouchCancel={unlockSwipe}
+    >
       <FlatList
         horizontal
         showsHorizontalScrollIndicator={false}

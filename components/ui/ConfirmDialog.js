@@ -12,6 +12,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import useBackIntercept from '../../hooks/useBackIntercept';
 import { COLORS, RADIUS, SPACING, themed } from '../../theme';
 
 export default function ConfirmDialog({
@@ -24,6 +25,13 @@ export default function ConfirmDialog({
   cancelLabel = 'Cancel',
   onCancel,
 }) {
+  // Android back dismisses it, like the scrim. This is NOT a <Modal> (see the
+  // note above), so there is no onRequestClose to lean on and back would
+  // otherwise sail straight past to the router — closing a screen, or the app,
+  // with a confirmation still on top. Registered before the early return below:
+  // hooks cannot be called conditionally.
+  useBackIntercept(!!visible, () => { onCancel?.(); return true; });
+
   if (!visible) return null;
   const accent = tone === 'danger' ? COLORS.red : COLORS.primary;
 
