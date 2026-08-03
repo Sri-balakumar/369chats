@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_app_server_config_system,app.server.config.system,model_app_server_config,base.group_system,1,1,1,1
+access_app_server_db_system,app.server.db.system,model_app_server_db,base.group_system,1,1,1,1

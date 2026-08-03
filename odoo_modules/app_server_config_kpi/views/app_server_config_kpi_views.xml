@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_app_server_config_form_users" model="ir.ui.view">
+        <field name="name">app.server.config.form.users</field>
+        <field name="model">app.server.config</field>
+        <field name="inherit_id" ref="app_server_config.view_app_server_config_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet/group" position="after">
+                <separator string="Users"/>
+                <div class="text-muted mb-2">
+                    The number each person signs in with. This is the same field as
+                    Login Management (Non-odoo) — editing it here changes it there
+                    too, because there is only one of it.
+                </div>
+                <!-- The FIELD is readonly (the set of users is not being edited —
+                     it is everyone in this Odoo) while the LINES are editable, so
+                     a change writes straight to res.users. -->
+                <field name="user_ids" nolabel="1" readonly="1">
+                    <list editable="bottom" create="false" delete="false">
+                        <field name="name" readonly="1"/>
+                        <field name="kpi_mobile_number" placeholder="9876543210"/>
+                        <field name="kpi_app_login_enabled" widget="boolean_toggle"/>
+                    </list>
+                </field>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

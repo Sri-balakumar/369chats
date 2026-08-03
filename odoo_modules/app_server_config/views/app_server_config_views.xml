@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_app_server_config_list" model="ir.ui.view">
+        <field name="name">app.server.config.list</field>
+        <field name="model">app.server.config</field>
+        <field name="arch" type="xml">
+            <!-- NOT editable="bottom". An editable list makes "New" add an
+                 inline row, so the form — which is where the URL is entered,
+                 the databases load and the users are listed — is never opened.
+                 New must open the page. -->
+            <list string="App Servers">
+                <field name="app_key"/>
+                <field name="name"/>
+                <field name="client_url"/>
+                <field name="client_db"/>
+                <field name="active" widget="boolean_toggle"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_app_server_config_form" model="ir.ui.view">
+        <field name="name">app.server.config.form</field>
+        <field name="model">app.server.config</field>
+        <field name="arch" type="xml">
+            <form string="App Server">
+                <sheet>
+                    <div class="oe_title">
+                        <label for="app_key"/>
+                        <h1><field name="app_key" placeholder="369chats"/></h1>
+                    </div>
+                    <group>
+                        <group string="What devices should use">
+                            <!-- Leaving this field fetches that server's
+                                 databases; no button to press. -->
+                            <field name="client_url" placeholder="https://odoo.example.com"/>
+                            <field name="db_options" invisible="1"/>
+                            <!-- The dropdown, once a fetch has found something. -->
+                            <field name="client_db_id"
+                                   options="{'no_create': True, 'no_open': True}"
+                                   invisible="not db_options"
+                                   required="db_options != False"/>
+                            <!-- Fallback: a server with list_db = False returns
+                                 nothing to choose from, so the name has to be
+                                 typed. This is also the field the app endpoint
+                                 reads, which is why it stays visible (readonly)
+                                 once a dropdown choice has been made. -->
+                            <field name="client_db" placeholder="sales_test"
+                                   readonly="db_options != False"/>
+                        </group>
+                        <group string="Admin">
+                            <field name="name" placeholder="369Chats mobile app"/>
+                            <field name="active"/>
+                        </group>
+                    </group>
+                    <div class="text-muted">
+                        Apps ask this server for their address on every cold start, so changing
+                        the URL or database here moves every device by itself — no rebuild and no
+                        re-setup. Anyone already signed in is asked to sign in again next time they
+                        open the app, so keep the old server reachable for a while after switching.
+                        <br/>
+                        Leave a field empty to answer with this server's own address or database.
+                        The app key is what the installed app sends: renaming it breaks every copy
+                        already out there until they are rebuilt.
+                    </div>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_app_server_config" model="ir.actions.act_window">
+        <field name="name">App Servers</field>
+        <field name="res_model">app.server.config</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Tell a mobile app where to connect</p>
+            <p>
+                One row per app. The app sends its key (for example
+                <b>369chats</b>) and gets back the URL and database it should use.
+            </p>
+        </field>
+    </record>
+
+    <!-- A TOP-LEVEL menu, not Settings → Technical. Technical is gated on the
+         "Technical Features" group, i.e. developer mode has to be switched on to
+         reach it — and pointing apps at a new server is the routine admin task
+         this module exists for, not a developer chore.
+
+         The access rules already limit the records to system administrators, so
+         the menu carries the same group and nothing is loosened by moving it. -->
+    <menuitem id="menu_app_server_root"
+              name="App Servers"
+              sequence="47"
+              groups="base.group_system"/>
+
+    <!-- A root menu needs a CHILD carrying the action: an action placed directly
+         on a root menu does not open from the Apps grid. -->
+    <menuitem id="menu_app_server_config"
+              name="App Servers"
+              parent="menu_app_server_root"
+              action="action_app_server_config"
+              sequence="10"
+              groups="base.group_system"/>
+
+</odoo>
