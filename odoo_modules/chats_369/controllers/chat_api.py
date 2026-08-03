@@ -261,6 +261,11 @@ class Chat369API(http.Controller):
             'edited': msg.edited,
             'forwarded': msg.forwarded,
             'is_meet': msg.is_meet,
+            # Call history card. `duration` is already serialized above for audio;
+            # it doubles as the call length here.
+            'is_call': msg.is_call,
+            'call_video': msg.call_video,
+            'call_missed': msg.call_missed,
             'poll': self._serialize_poll(msg, me_id) if msg.kind == 'poll' else False,
             'starred': me_id in msg.starred_user_ids.ids,
             'reactions': self._reactions_of(msg, me_id),
@@ -1794,8 +1799,25 @@ class Chat369API(http.Controller):
         if params.get('log'):
             missed = bool(params.get('missed'))
             dur = int(params.get('duration') or 0)
-            text = '📞 Missed call' if missed else '📞 Call · %d:%02d' % divmod(dur, 60)
-            sysmsg = self._system_message(conv, me, text)
+            video = bool(params.get('video'))
+
+            # Flags, not prose. The clients render a card from these (icon, colour,
+            # direction, duration); `body` is only a fallback for anything that
+            # does not know about call cards. author_id is `me` — the CALLER — so
+            # the existing mine/theirs logic aligns it right for the caller and
+            # left for the receiver, exactly like a normal message.
+            kind = 'video call' if video else 'voice call'
+            text = ('Missed %s' % kind) if missed else ('%s · %d:%02d' % (kind.capitalize(), *divmod(dur, 60)))
+            sysmsg = request.env['chat.message'].sudo().create({
+                'conversation_id': conv.id,
+                'author_id': me.id,
+                'body': text,
+                'kind': 'system',
+                'is_call': True,
+                'call_video': video,
+                'call_missed': missed,
+                'duration': dur,
+            })
             self._bus_message(conv, sysmsg, 'message', exclude_uid=me.id)
             request.env['chat.call'].sudo().create({
                 'conversation_id': conv.id, 'caller_id': me.id, 'callee_id': other.id if other else False,

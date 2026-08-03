@@ -259,7 +259,10 @@ export class Chat369App extends Component {
                             <div t-if="it.sep" class="o369-datesep"><span t-esc="it.label"/></div>
                             <t t-else="">
                                 <t t-set="m" t-value="it.msg"/>
-                                <div t-if="m.kind === 'system'" class="o369-sys"><span t-esc="m.body"/></div>
+                                <!-- Call records are system messages but must NOT be centred lines:
+                                     they render as a card in a normal bubble, aligned to whoever
+                                     placed the call (the author), like WhatsApp. -->
+                                <div t-if="m.kind === 'system' and !m.is_call" class="o369-sys"><span t-esc="m.body"/></div>
                                 <div t-else="" class="o369-bubble" t-attf-id="o369m-{{m.id}}" t-att-class="(m.mine ? 'o369-out' : 'o369-in') + (state.flashId === m.id ? ' o369-flash' : '') + (state.selectMode and state.selectedIds.includes(m.id) ? ' o369-selected' : '')">
                                     <div t-if="state.selectMode and !m._pending" class="o369-seloverlay" t-on-click.stop="() => this.toggleSelect(m)">
                                         <span class="o369-selcheck" t-att-class="{ 'o369-selcheck-on': state.selectedIds.includes(m.id) }"><i class="fa fa-check"/></span>
@@ -336,6 +339,13 @@ export class Chat369App extends Component {
                                             </span>
                                         </a>
                                         <span t-if="m.body and state.searchOpen and state.searchQ" class="o369-btext" t-out="highlightBody(m.body)"/>
+                                        <div t-elif="m.is_call" class="o369-callcard">
+                                            <span class="o369-callcardico" t-att-class="m.call_missed ? 'o369-callcardico-missed' : ''"><i class="fa" t-att-class="m.call_video ? 'fa-video-camera' : 'fa-phone'"/></span>
+                                            <span class="o369-callcardinfo">
+                                                <span class="o369-callcardtitle" t-esc="callCardTitle(m)"/>
+                                                <span class="o369-callcardsub" t-esc="callCardSub(m)"/>
+                                            </span>
+                                        </div>
                                         <a t-elif="m.is_meet and m.body" class="o369-meetcard" t-att-href="m.body" target="_blank"><span class="o369-meetico"><i class="fa fa-video-camera"/></span><span class="o369-meetinfo"><span class="o369-meettitle">Google Meet</span><span class="o369-meetsub">Tap to join the meeting</span></span><span class="o369-meetjoin">Join</span></a>
                                         <div t-elif="m.kind === 'poll' and m.poll" class="o369-poll">
                                             <div class="o369-pollq"><i class="fa fa-bar-chart me-1"/><t t-esc="m.poll.question"/></div>
@@ -2863,6 +2873,21 @@ export class Chat369App extends Component {
     // poll
     // Safety-net poll (the bus does the instant work). Refreshes the list + presence
     // and reconciles the open thread's ticks/reactions/edits every few seconds.
+    // Call-card wording. Kept byte-identical to the app's CallCard so the two
+    // clients read the same; the server sends flags, not prose, precisely so
+    // neither client has to parse text.
+    callCardTitle(m) {
+        const kind = m.call_video ? 'video call' : 'voice call';
+        return m.call_missed ? ('Missed ' + kind) : (kind.charAt(0).toUpperCase() + kind.slice(1));
+    }
+    callCardSub(m) {
+        if (m.call_missed) return m.mine ? 'No answer' : 'You missed this call';
+        const s = Number(m.duration) || 0;
+        // Seconds read more naturally than 0:07 for very short calls.
+        if (s < 60) return s + ' second' + (s === 1 ? '' : 's');
+        return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    }
+
     // Tell the server we are gone, so watchers see "last seen" immediately rather
     // than up to 45s of stale "online". Presence can otherwise only lapse.
     //

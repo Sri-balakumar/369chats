@@ -55,6 +55,18 @@ class ChatMessage(models.Model):
     edited = fields.Boolean(string='Edited', default=False)
     forwarded = fields.Boolean(string='Forwarded', default=False)   # shows a "Forwarded" tag
     is_meet = fields.Boolean(string='Google Meet Link', default=False)   # renders as a Join-meeting card
+
+    # Call history. Same idea as is_meet: a flag that makes both clients render a
+    # card instead of a line of text. Previously the call outcome was written as
+    # an emoji into `body` ('📞 Missed call'), which meant clients had to parse
+    # prose to know anything and voice/video were indistinguishable.
+    #
+    # `duration` above is reused for the call length rather than adding another
+    # field, and `author_id` is the CALLER, so the existing mine/theirs logic
+    # aligns the card left or right with no extra work.
+    is_call = fields.Boolean(string='Call Record', default=False)
+    call_video = fields.Boolean(string='Video Call', default=False)
+    call_missed = fields.Boolean(string='Missed Call', default=False)
     # Disappearing messages: when set, the message is auto-deleted by a cron once
     # this moment passes (stamped on create from the conversation's timer).
     expire_at = fields.Datetime(string='Disappears At', index=True)

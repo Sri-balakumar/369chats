@@ -86,6 +86,10 @@ export function normalizeMessage(m, serverBase) {
     edited: !!m.edited,
     forwarded: !!m.forwarded,
     isMeet: !!m.is_meet,
+    // Call history card — `duration` below carries the call length.
+    isCall: !!m.is_call,
+    callVideo: !!m.call_video,
+    callMissed: !!m.call_missed,
     starred: !!m.starred,
     pinned: !!m.pinned,
     pinExpiry: nz(m.pin_expiry),

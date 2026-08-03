@@ -41,6 +41,44 @@ function SystemLine({ body }) {
   );
 }
 
+// A finished call, rendered as a card rather than a centred line of text.
+//
+// It sits in a normal bubble, so it aligns right for calls you placed and left
+// for calls you received — the caller is the message author. The icon badge
+// carries the two things you actually want at a glance: voice vs video, and
+// whether it connected.
+function CallCard({ msg, mine }) {
+  const missed = !!msg.callMissed;
+  const video = !!msg.callVideo;
+  const secs = Number(msg.duration) || 0;
+  const kind = video ? 'video call' : 'voice call';
+  const title = missed
+    ? `Missed ${kind}`
+    : `${kind.charAt(0).toUpperCase()}${kind.slice(1)}`;
+  // Seconds read more naturally than 0:07 for very short calls, which is what
+  // WhatsApp does too.
+  const sub = missed
+    ? (mine ? 'No answer' : 'You missed this call')
+    : (secs < 60 ? `${secs} second${secs === 1 ? '' : 's'}`
+      : `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`);
+
+  return (
+    <View style={s.call}>
+      <View style={[s.callIcon, { backgroundColor: missed ? COLORS.redBg : COLORS.greenBg }]}>
+        <Ionicons
+          name={video ? 'videocam' : 'call'}
+          size={19}
+          color={missed ? COLORS.red : COLORS.green}
+        />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={[s.callTitle, mine && s.bodyMine]}>{title}</Text>
+        <Text style={[s.callSub, mine && s.metaMine]}>{sub}</Text>
+      </View>
+    </View>
+  );
+}
+
 // Grouped reaction chips under the bubble. `mine` outlines the chip so you can
 // see at a glance which one you added.
 function Reactions({ list, mine, onPress }) {
@@ -97,7 +135,11 @@ export default function MessageBubble({
   // Active in-chat search term — matches are marked inside the bubble.
   highlight,
 }) {
-  if (msg.kind === 'system') return <SystemLine body={msg.body} />;
+  // Call records are stored as system messages, but they are NOT centred lines:
+  // they render as a card aligned to whoever placed the call, like WhatsApp. Let
+  // them fall through to the normal bubble so alignment, bubble styling and the
+  // timestamp all come for free.
+  if (msg.kind === 'system' && !msg.isCall) return <SystemLine body={msg.body} />;
 
   const mine = !!msg.mine;
   const isMedia = msg.kind === 'image' || msg.kind === 'video';
@@ -195,6 +237,8 @@ export default function MessageBubble({
           </View>
         ) : msg.poll ? (
           <Poll poll={msg.poll} onVote={onVote} />
+        ) : msg.isCall ? (
+          <CallCard msg={msg} mine={mine} />
         ) : msg.isMeet ? (
           <TouchableOpacity style={s.meet} activeOpacity={0.85} onPress={() => onMeet?.(msg.body)}>
             <View style={s.meetIcon}><Ionicons name="videocam" size={18} color={COLORS.onPrimary} /></View>
@@ -341,6 +385,14 @@ const s = themed((C) => ({
   },
   meetTitle: { fontSize: 14.5, fontWeight: '800', color: C.ink },
   meetUrl: { fontSize: 11.5, color: C.link, marginTop: 1 },
+
+  call: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, paddingVertical: 2, minWidth: 168 },
+  callIcon: {
+    width: 38, height: 38, borderRadius: 19,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  callTitle: { fontSize: 14.5, fontWeight: '700', color: C.ink },
+  callSub: { fontSize: 11.5, color: C.slate500, marginTop: 2 },
 
   meta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 2 },
   metaTxt: { fontSize: 10.5, color: C.slate400 },
