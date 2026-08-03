@@ -36,6 +36,11 @@ class ChatMember(models.Model):
     muted_until = fields.Datetime(string='Muted Until')       # empty + muted = forever
     pinned = fields.Boolean(string='Pinned', default=False)   # this user pinned the chat to the top
     favourite = fields.Boolean(string='Favourite', default=False)
+    # Hand-sorted order of the favourites shortlist on the Calls screen. Lives on
+    # the server rather than per-device so the app and the web agree; ties fall
+    # back to conversation id, so rows added before this existed still have a
+    # stable order instead of shuffling on every fetch.
+    favourite_seq = fields.Integer(string='Favourite Order', default=0)
     archived = fields.Boolean(string='Archived', default=False)
     manual_unread = fields.Boolean(string='Marked Unread', default=False)
     hidden = fields.Boolean(string='Hidden', default=False)   # "delete chat" for a 1:1 (until a new msg)

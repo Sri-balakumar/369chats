@@ -146,6 +146,9 @@ export function normalizeConversation(c, serverBase) {
     archived: !!c.archived,
     // Already accounts for muted_until expiry server-side — trust it directly.
     muted: !!c.muted,
+    // null = muted with no deadline ("until I turn it off"), which is NOT the
+    // same as not muted — check `muted` first, then this for the wording.
+    mutedUntil: nz(c.muted_until),
     otherUserId,
     otherMobile: c.other_mobile || '',
     blockedByMe: !!c.blocked_by_me,
@@ -190,6 +193,11 @@ export async function fetchMe() {
     notifGroups: !!me.notif_groups,
     notifSound: !!me.notif_sound,
     notifPreview: !!me.notif_preview,
+    // Archive settings. keepArchived defaults TRUE server-side, so an older
+    // server that does not send it must not read as "off" — that would start
+    // un-archiving chats on the next message.
+    keepArchived: me.keep_archived !== false,
+    archiveAtBottom: !!me.archive_at_bottom,
   };
 }
 
@@ -228,6 +236,10 @@ export async function fetchConversations(filter = 'all') {
   return {
     conversations: (res.conversations || []).map((c) => normalizeConversation(c, b)),
     unreadTotal: res.unread_total || 0,
+    // What is sitting in the archive, sent with EVERY filter so the chat list can
+    // draw its "Archived" row without a second request.
+    archivedCount: res.archived_count || 0,
+    archivedUnread: res.archived_unread || 0,
   };
 }
 
@@ -522,6 +534,14 @@ export function favouriteConversation(conversationId, favourite) {
   return call('/chat/favourite', { conversation_id: Number(conversationId), favourite: !!favourite });
 }
 
+// The hand-sorted order of the favourites shortlist, in the order given. Stored
+// server-side so the app and the web agree rather than each keeping its own.
+export function setFavouritesOrder(conversationIds) {
+  return call('/chat/favourites_order', {
+    conversation_ids: (conversationIds || []).map(Number),
+  });
+}
+
 // hours 0 = forever. Server-side mute only suppresses PUSH — bus events still
 // arrive, so the client must silence its own in-app banner and sound.
 export function muteConversation(conversationId, muted, hours = 0) {
@@ -562,6 +582,7 @@ export async function contactInfo(conversationId) {
     title: i.title || '',
     favourite: !!i.favourite,
     muted: !!i.muted,
+    mutedUntil: nz(i.muted_until),
     disappearSeconds: i.disappear_seconds || 0,
     media: i.media || { photos: 0, videos: 0, docs: 0 },
     avatarUrl: i.avatar_url && b ? `${b}${i.avatar_url}` : null,

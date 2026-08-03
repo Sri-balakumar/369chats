@@ -14,6 +14,7 @@ import { COLORS, SHADOW, RADIUS, SPACING, TOP, themed } from '../theme';
 import { Screen, ChipRow, Loader, EmptyState, emptyWrap } from '../components/ui';
 import MediaViewer from '../components/chat/MediaViewer';
 import AuthImage from '../components/chat/AuthImage';
+import VideoThumb from '../components/chat/VideoThumb';
 import openAttachment from '../utils/openAttachment';
 import * as chat from '../services/chat';
 import { createLogger } from '../api/logger';
@@ -128,10 +129,13 @@ export default function ChatMediaScreen({ conversation, onBack }) {
             <View style={s.gridRow}>
               {item.map((it) => (
                 <TouchableOpacity key={it.id} style={s.tile} activeOpacity={0.85} onPress={() => openItem(it)}>
-                  {/* Authenticated route — a plain <Image> renders blank here. */}
-                  <AuthImage uri={it.url} id={it.id} style={s.tileImg} />
-                  {it.kind === 'video' && (
-                    <View style={s.playBadge}><Ionicons name="play" size={16} color={COLORS.onPrimary} /></View>
+                  {/* Authenticated route — a plain <Image> renders blank here.
+                      Videos get a tile: <Image> cannot decode an mp4, and the
+                      attempt downloaded every video in the grid in full. */}
+                  {it.kind === 'video' ? (
+                    <VideoThumb style={s.tileImg} iconSize={16} />
+                  ) : (
+                    <AuthImage uri={it.url} id={it.id} mimetype={it.mimetype} style={s.tileImg} />
                   )}
                 </TouchableOpacity>
               ))}

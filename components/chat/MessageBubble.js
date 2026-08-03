@@ -19,6 +19,7 @@ import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AudioBubble from './AudioBubble';
 import AuthImage from './AuthImage';
+import VideoThumb from './VideoThumb';
 import LinkedText from './LinkedText';
 import { COLORS, RADIUS, SPACING, themed } from '../../theme';
 
@@ -212,11 +213,14 @@ export default function MessageBubble({
           // which is exactly why tapping a photo or a document did nothing. The
           // outer touchable now routes to onMediaPress for these kinds.
           <View>
-            {/* AuthImage, not Image: the media route needs the session cookie,
-                which RN's image pipeline does not carry. See AuthImage. */}
-            <AuthImage uri={msg.mediaUri} id={msg.id} mimetype={msg.mimetype} style={s.media} />
-            {msg.kind === 'video' && (
-              <View style={s.playBadge}><Ionicons name="play" size={22} color={COLORS.onPrimary} /></View>
+            {/* Photos: AuthImage, not Image — the media route needs the session
+                cookie, which RN's image pipeline does not carry. See AuthImage.
+                Videos: a tile, because <Image> cannot decode an mp4 and trying
+                downloaded the entire file just to render a broken-image icon. */}
+            {msg.kind === 'video' ? (
+              <VideoThumb style={s.media} />
+            ) : (
+              <AuthImage uri={msg.mediaUri} id={msg.id} mimetype={msg.mimetype} style={s.media} />
             )}
             {!!msg.body && <Text style={[s.body, s.mediaCaption, mine && s.bodyMine]}>{msg.body}</Text>}
           </View>
@@ -279,9 +283,12 @@ export default function MessageBubble({
           </>
         )}
 
-        {/* Meta sits on one baseline: star, edited marker, time, then ticks. */}
+        {/* Meta sits on one baseline: star, pin, edited marker, time, ticks. */}
         <View style={s.meta}>
           {msg.starred && <Ionicons name="star" size={11} color={COLORS.amber} />}
+          {msg.pinned && !msg.deleted && (
+            <Ionicons name="pin" size={11} color={mine ? COLORS.onBubbleMineMuted : COLORS.slate400} />
+          )}
           {msg.edited && !msg.deleted && (
             <Text style={[s.metaTxt, mine && s.metaMine]}>edited</Text>
           )}

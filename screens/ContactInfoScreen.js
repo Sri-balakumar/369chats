@@ -12,7 +12,7 @@
 // components/ui/InfoSection, so a change to the look lands on both screens.
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, ScrollView, Alert,
+  View, Text, TouchableOpacity, ScrollView, Alert, TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,6 +22,9 @@ import {
   ConfirmDialog, InfoSection, InfoRow, InfoHero, MemberRow,
 } from '../components/ui';
 import AuthImage from '../components/chat/AuthImage';
+import VideoThumb from '../components/chat/VideoThumb';
+import MuteSheet, { mutedUntilLabel } from '../components/chat/MuteSheet';
+import usePlaceCall from '../hooks/usePlaceCall';
 import * as chat from '../services/chat';
 import presenceText from '../utils/presence';
 import { createLogger } from '../api/logger';
@@ -42,9 +45,11 @@ const DISAPPEAR = [
 // full (capped) list comes back and we slice.
 const STRIP = 4;
 
-// The circle actions under the name. There is no native calling in this product —
-// services/chat.js offers createMeet/scheduleCall only — so Audio and Video both
-// open a Google Meet, which is what the ⋮ "Start a meeting" already does.
+// The circle actions under the name. Audio and Video place REAL calls — they used
+// to open a Google Meet instead, from a time when the app had no WebRTC. It does
+// now, so they were a bug: the one place you would look to ring someone quietly
+// created a meeting link. Meet is still reachable from the thread's ⋮ "Start a
+// meeting", which is also where the web keeps it.
 function Circle({ icon, label, onPress, disabled }) {
   return (
     <TouchableOpacity
@@ -59,7 +64,7 @@ function Circle({ icon, label, onPress, disabled }) {
 }
 
 export default function ContactInfoScreen({
-  conversation, onBack, onLeft, onManageGroup, onOpenChat, onOpenMedia, onOpenGmeet,
+  conversation, onBack, onLeft, onManageGroup, onOpenChat, onOpenMedia,
 }) {
   // Edge-to-edge draws under the nav bar; reserve that space at the bottom.
   const insets = useSafeAreaInsets();
@@ -71,8 +76,36 @@ export default function ContactInfoScreen({
   const [member, setMember] = useState(null);   // tapped group member
   const [busy, setBusy] = useState(false);
   const [strip, setStrip] = useState([]);       // recent media thumbnails
-  const [gmeet, setGmeet] = useState(null);
   const [confirm, setConfirm] = useState(null); // { title, message, icon, actions }
+  const [muteAsk, setMuteAsk] = useState(false);
+  const [nickOpen, setNickOpen] = useState(false);
+  const [nickDraft, setNickDraft] = useState('');
+
+  // Clearing the field removes the nickname — the server treats '' as "unset",
+  // which is how the web's Save button behaves too.
+  const saveNick = async () => {
+    setNickOpen(false);
+    const nick = nickDraft.trim();
+    try {
+      await chat.setNickname(info.userId, nick);
+      setInfo((p) => ({ ...p, nickname: nick }));
+    } catch (e) {
+      Alert.alert('Failed', e?.message || 'Could not save the nickname.');
+    }
+  };
+
+  // blockedByMe comes from /chat/contact_info, which is fresher than the
+  // conversation row this screen was opened with — and it is the one field that
+  // decides whether calling is allowed at all, so prefer it once loaded.
+  const { placeCall, callErr, clearCallErr } = usePlaceCall({
+    ...conversation,
+    blockedByMe: info ? info.blockedByMe : conversation?.blockedByMe,
+  });
+
+  // Shown for any 1:1 you are in. Not gated on the WebRTC module: hiding the
+  // buttons on a build without it looks like the feature was removed, so
+  // placeCall says so instead. Same reasoning as the thread header.
+  const showCall = !!info && !info.isGroup && !info.isSelf && !info.blockedByMe;
 
   const load = useCallback(async () => {
     setError(null);
@@ -96,16 +129,6 @@ export default function ContactInfoScreen({
       .catch((e) => log.warn('media strip failed', e?.message));
     return () => { alive = false; };
   }, [convId]);
-
-  // Cached for a minute in the service, so this is cheap and keeps the circles
-  // from offering a meeting the workspace will refuse.
-  useEffect(() => {
-    let alive = true;
-    chat.gmeetStatus()
-      .then((st) => { if (alive) setGmeet(st); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, []);
 
   // Optimistic toggles: flip locally, call, and reload on failure so the switch
   // never lies about server state.
@@ -180,39 +203,6 @@ export default function ContactInfoScreen({
     });
   };
 
-  // Same checks and wording as the thread's ⋮ "Start a meeting" (startMeet in
-  // ChatThreadScreen) — re-fetched here because the cached status may be stale.
-  // The meeting is posted as a message, so we hand the user back to the thread
-  // where it appears rather than trying to render it from this screen.
-  const startMeet = async () => {
-    setBusy(true);
-    try {
-      const st = await chat.gmeetStatus({ force: true });
-      if (!st.connected) {
-        if (st.isAdmin) { onOpenGmeet?.(); return; }
-        Alert.alert(
-          'Google Meet not connected',
-          'An administrator needs to connect the shared Google account in Odoo before meetings can be created.',
-        );
-        return;
-      }
-      if (st.scope === 'groups' && !info.isGroup) {
-        Alert.alert('Not allowed', 'Meetings are limited to group chats here.');
-        return;
-      }
-      if (st.scope === 'direct' && info.isGroup) {
-        Alert.alert('Not allowed', 'Meetings are limited to direct chats here.');
-        return;
-      }
-      await chat.createMeet(convId);
-      onBack?.();
-    } catch (e) {
-      Alert.alert('Failed', e?.message || 'Please try again.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
   // Member actions. "Message" opens (or creates) the 1:1 with that person —
   // openDirect is get-or-create, so tapping it twice never makes a second chat.
   const messageMember = async () => {
@@ -264,13 +254,6 @@ export default function ContactInfoScreen({
   const lastSeen = info.hasPresence ? info.lastSeen : conversation?.lastSeen;
   const presence = info.isGroup || info.isSelf ? '' : presenceText({ online, lastSeen });
 
-  // Let the server have the final say; these only decide whether the circle looks
-  // available, and startMeet re-checks and explains.
-  const meetScopeOk = !gmeet
-    || (gmeet.scope !== 'groups' && gmeet.scope !== 'direct')
-    || (gmeet.scope === 'groups' ? info.isGroup : !info.isGroup);
-  const canMeet = !gmeet || (!!gmeet.connected && meetScopeOk);
-
   return (
     <Screen>
       <ScreenHeader title={info.isGroup ? 'Group info' : 'Contact info'} onBack={onBack} />
@@ -298,9 +281,28 @@ export default function ContactInfoScreen({
         {!info.isGroup && !info.isSelf && (
           <View style={s.circles}>
             <Circle icon="chatbubble-outline" label="Message" onPress={onBack} />
-            <Circle icon="call-outline" label="Audio" onPress={startMeet} disabled={busy || !canMeet} />
-            <Circle icon="videocam-outline" label="Video" onPress={startMeet} disabled={busy || !canMeet} />
+            {showCall && (
+              <>
+                <Circle icon="call-outline" label="Audio" onPress={() => placeCall(false)} disabled={busy} />
+                <Circle icon="videocam-outline" label="Video" onPress={() => placeCall(true)} disabled={busy} />
+              </>
+            )}
           </View>
+        )}
+
+        {/* Nickname — private, 1:1 only. The screen has always DISPLAYED one in
+            the hero above; chat.setNickname existed with no caller, so there was
+            no way to actually set it from the app. */}
+        {!info.isGroup && !info.isSelf && !!info.userId && (
+          <InfoSection>
+            <InfoRow
+              icon="pricetag-outline"
+              label={info.nickname ? 'Change nickname' : 'Add nickname'}
+              sub={info.nickname || 'Only you see this'}
+              onPress={() => { setNickDraft(info.nickname || ''); setNickOpen(true); }}
+              chevron last
+            />
+          </InfoSection>
         )}
 
         {/* Media, links and docs — the counts used to be three dead tiles. */}
@@ -319,9 +321,10 @@ export default function ContactInfoScreen({
                 <View key={it.id} style={s.thumb}>
                   {/* /chats_369/media/<id> is auth='user' and RN's image pipeline
                       has its own cookie jar — AuthImage is the only way in. */}
-                  <AuthImage uri={it.url} id={it.id} mimetype={it.mimetype} style={s.thumbImg} />
-                  {it.kind === 'video' && (
-                    <View style={s.play}><Ionicons name="play" size={12} color={COLORS.onOverlay} /></View>
+                  {it.kind === 'video' ? (
+                    <VideoThumb style={s.thumbImg} iconSize={12} />
+                  ) : (
+                    <AuthImage uri={it.url} id={it.id} mimetype={it.mimetype} style={s.thumbImg} />
                   )}
                 </View>
               ))}
@@ -336,9 +339,22 @@ export default function ContactInfoScreen({
         )}
 
         <InfoSection>
+          {/* Muting asks for how long; un-muting is immediate. This used to pass
+              hours=0 (forever) whichever way the switch moved. */}
           <InfoRow
             icon="notifications-off-outline" label="Mute notifications"
-            right={<Switch value={!!info.muted} onValueChange={() => toggle('muted', (v) => chat.muteConversation(convId, v, 0))} />}
+            // The deadline the user picked, echoed back. Without this a mute was
+            // a switch with no memory — you could not tell 8 hours from forever.
+            sub={info.muted ? mutedUntilLabel(info.mutedUntil) : undefined}
+            right={(
+              <Switch
+                value={!!info.muted}
+                onValueChange={(v) => {
+                  if (v) setMuteAsk(true);
+                  else toggle('muted', () => chat.muteConversation(convId, false, 0));
+                }}
+              />
+            )}
           />
           <InfoRow
             icon="star-outline" label="Favourite"
@@ -451,6 +467,68 @@ export default function ContactInfoScreen({
         actions={confirm?.actions || []}
         onCancel={() => setConfirm(null)}
       />
+
+      <PopupModal visible={nickOpen} onClose={() => setNickOpen(false)} title="Nickname">
+        <Text style={s.nickHint}>
+          Only you see this. It replaces {info.name} throughout your chats.
+        </Text>
+        <TextInput
+          style={s.nickInput}
+          value={nickDraft}
+          onChangeText={setNickDraft}
+          placeholder={info.name}
+          placeholderTextColor={COLORS.faint}
+          autoFocus
+          maxLength={64}
+          returnKeyType="done"
+          onSubmitEditing={saveNick}
+        />
+        <View style={s.nickBtns}>
+          {/* Clearing is the documented way to remove one, so it needs its own
+              affordance rather than relying on the user emptying the field. */}
+          <TouchableOpacity onPress={() => { setNickDraft(''); }} activeOpacity={0.75}>
+            <Text style={s.nickClear}>Clear</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={saveNick} activeOpacity={0.85} style={s.nickSave}>
+            <Text style={s.nickSaveTxt}>Save</Text>
+          </TouchableOpacity>
+        </View>
+      </PopupModal>
+
+      <MuteSheet
+        visible={muteAsk}
+        onClose={() => setMuteAsk(false)}
+        onPick={async (hours, opt) => {
+          setMuteAsk(false);
+          // Optimistic, including the deadline, so the row's subtitle updates
+          // immediately. hours 0 = no deadline. The server format is a naive
+          // UTC string, so match it rather than sending an ISO one.
+          const until = hours
+            ? new Date(Date.now() + hours * 3600000).toISOString().slice(0, 19).replace('T', ' ')
+            : null;
+          setInfo((p) => ({ ...p, muted: true, mutedUntil: until }));
+          try {
+            await chat.muteConversation(convId, true, hours);
+            Alert.alert('Muted', `Notifications are off ${opt.confirm}.`);
+          } catch (e) {
+            Alert.alert('Failed', e?.message || 'Could not mute.');
+            load();
+          }
+        }}
+      />
+
+      {/* Same treatment as the thread: a failed call is a thing to tell the user,
+          not a reason to replace the screen with an error state. */}
+      <ConfirmDialog
+        visible={!!callErr}
+        icon="call-outline"
+        tone="danger"
+        title="Can't start the call"
+        message={callErr || ''}
+        actions={[]}
+        cancelLabel="OK"
+        onCancel={clearCallErr}
+      />
     </Screen>
   );
 }
@@ -459,6 +537,22 @@ const s = themed((C) => ({
   presence: { fontSize: 12.5, color: C.slate500, fontWeight: '600' },
   presenceOn: { color: C.green, fontWeight: '700' },
   nickname: { fontSize: 12.5, color: C.faint, fontStyle: 'italic' },
+  nickHint: { fontSize: 12.5, color: C.slate500, paddingHorizontal: SPACING.sm, marginBottom: SPACING.sm },
+  nickInput: {
+    marginHorizontal: SPACING.sm, paddingHorizontal: SPACING.md, paddingVertical: 10,
+    borderRadius: RADIUS.md, borderWidth: 1, borderColor: C.line,
+    fontSize: 15, color: C.slate700, backgroundColor: C.card,
+  },
+  nickBtns: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end',
+    gap: SPACING.lg, paddingHorizontal: SPACING.sm, paddingTop: SPACING.md,
+  },
+  nickClear: { fontSize: 14, fontWeight: '700', color: C.slate500 },
+  nickSave: {
+    paddingHorizontal: SPACING.lg, paddingVertical: 9,
+    borderRadius: RADIUS.md, backgroundColor: C.primary,
+  },
+  nickSaveTxt: { fontSize: 14, fontWeight: '800', color: C.onPrimary },
   description: { fontSize: 13.5, color: C.slate500, textAlign: 'center', paddingHorizontal: 30, marginTop: 4 },
 
   circles: {

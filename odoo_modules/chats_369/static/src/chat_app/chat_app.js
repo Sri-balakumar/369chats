@@ -47,9 +47,15 @@ export class Chat369App extends Component {
                 <t t-if="state.view === 'chats'">
                     <div class="o369-lhead">
                         <span class="o369-brandwrap">
-                            <span class="o369-brand">369Chats</span>
+                            <!-- The archive is somewhere you navigated to, so it
+                                 gets a back arrow and its own title. -->
+                            <button t-if="state.inArchive" class="o369-iconbtn o369-archback" t-on-click="exitArchive" title="Back"><i class="fa fa-arrow-left"/></button>
+                            <span class="o369-brand" t-esc="state.inArchive ? 'Archived' : '369Chats'"/>
                         </span>
-                        <span class="o369-headbtns">
+                        <span class="o369-headbtns" t-if="state.inArchive">
+                            <button class="o369-iconbtn" t-on-click="() => (state.archSettings = true)" title="Archive settings"><i class="fa fa-ellipsis-v"/></button>
+                        </span>
+                        <span class="o369-headbtns" t-if="!state.inArchive">
                             <button class="o369-iconbtn" t-on-click="openContacts" title="New chat"><i class="fa fa-pencil-square-o"/></button>
                             <button class="o369-iconbtn" t-on-click.stop="toggleHeaderMenu" title="Menu"><i class="fa fa-ellipsis-v"/></button>
                             <div class="o369-hdrmenu" t-if="state.headerMenu">
@@ -60,12 +66,14 @@ export class Chat369App extends Component {
                             </div>
                         </span>
                     </div>
-                    <div class="o369-search">
+                    <!-- Search and the chips belong to the main list; the archive
+                         is a short self-contained one, as in WhatsApp. -->
+                    <div class="o369-search" t-if="!state.inArchive">
                         <i class="fa fa-search"/>
                         <input type="text" placeholder="Search chats and messages" t-model="state.search" t-on-input="onListSearch"/>
                         <button class="o369-searchx" t-if="state.search" t-on-click="() => { state.search = ''; state.globalMsgs = []; }" title="Clear"><i class="fa fa-times"/></button>
                     </div>
-                    <div class="o369-chips">
+                    <div class="o369-chips" t-if="!state.inArchive">
                         <button class="o369-chip" t-att-class="{ 'o369-chip-on': state.filter === 'all' }" t-on-click="() => this.setFilter('all')">All</button>
                         <button class="o369-chip" t-att-class="{ 'o369-chip-on': state.filter === 'unread' }" t-on-click="() => this.setFilter('unread')">Unread</button>
                         <button class="o369-chip" t-att-class="{ 'o369-chip-on': state.filter === 'favourites' }" t-on-click="() => this.setFilter('favourites')">Favourites</button>
@@ -76,7 +84,6 @@ export class Chat369App extends Component {
                                 <t t-foreach="state.lists" t-as="l" t-key="l.id">
                                     <button class="o369-chipmenu-item" t-att-class="{ 'o369-chipmenu-on': state.filter === l.id }" t-on-click.stop="() => { this.setFilter(l.id); state.chipMenuOpen = false; }"><span><t t-esc="l.emoji"/> <t t-esc="l.name"/></span></button>
                                 </t>
-                                <button class="o369-chipmenu-item" t-att-class="{ 'o369-chipmenu-on': state.filter === 'archived' }" t-on-click.stop="() => { this.setFilter('archived'); state.chipMenuOpen = false; }"><span><i class="fa fa-archive"/> Archived</span></button>
                                 <button class="o369-chipmenu-item o369-chipmenu-admin" t-if="state.gmeet.is_admin" t-att-class="{ 'o369-chipmenu-on': state.filter === 'admin_all' }" t-on-click.stop="() => { this.setFilter('admin_all'); state.chipMenuOpen = false; }"><span><i class="fa fa-eye"/> All chats (monitor)</span></button>
                                 <div class="o369-chipmenu-sep"/>
                                 <button class="o369-chipmenu-item o369-chipmenu-add" t-on-click.stop="() => { this.openNewList(); state.chipMenuOpen = false; }"><span><i class="fa fa-plus"/> New list</span></button>
@@ -89,6 +96,20 @@ export class Chat369App extends Component {
                         <button class="o369-nb-x" t-on-click="() => (state.notifBannerHidden = true)" title="Dismiss"><i class="fa fa-times"/></button>
                     </div>
                     <div class="o369-list">
+                        <!-- The archive entry. A place you go, not a filter —
+                             same as the app. Top by default; "Show archived at
+                             the bottom" moves it after the list instead. -->
+                        <div class="o369-archrow" t-if="showArchRow() and !state.archPrefs.archive_at_bottom"
+                             t-on-click="() => this.enterArchive()">
+                            <i class="fa fa-archive"/>
+                            <span class="o369-archtxt">Archived</span>
+                            <!-- Always the number of archived CHATS. It used to
+                                 switch to the unread MESSAGE count when there
+                                 was one, so a single archived chat with five
+                                 unread read as "Archived 5". Unread only
+                                 changes the colour now. -->
+                            <span t-att-class="state.archivedUnread ? 'o369-archunread' : 'o369-archcount'" t-esc="state.archivedCount"/>
+                        </div>
                         <t t-foreach="filteredConversations()" t-as="c" t-key="c.id">
                             <div class="o369-row" t-att-class="{ 'o369-active': c.id === state.selectedId }" t-on-click="() => this.select(c)">
                                 <div class="o369-avatar">
@@ -106,7 +127,7 @@ export class Chat369App extends Component {
                                     </div>
                                     <div class="o369-rowbot">
                                         <span class="o369-prev" t-if="draftFor(c.id)"><span class="o369-draft">Draft:</span> <t t-esc="draftFor(c.id)"/></span>
-                                        <span class="o369-prev" t-else="" t-esc="c.last_preview"/>
+                                        <span class="o369-prev" t-else=""><i t-if="previewIcon(c.last_kind)" t-attf-class="fa {{ previewIcon(c.last_kind) }} o369-previcon"/><t t-esc="c.last_preview"/></span>
                                         <span class="o369-rowicons">
                                             <i t-if="c.favourite" class="fa fa-heart o369-favicon"/>
                                             <i t-if="c.pinned" class="fa fa-thumb-tack o369-pinicon"/>
@@ -121,14 +142,25 @@ export class Chat369App extends Component {
                                     <button class="o369-menuitem" t-on-click.stop="() => this.pinConversation(c)"><i class="fa fa-thumb-tack"/> <t t-esc="c.pinned ? 'Unpin chat' : 'Pin chat'"/></button>
                                     <button class="o369-menuitem" t-on-click.stop="() => this.markUnread(c)"><i class="fa fa-envelope-o"/> Mark as unread</button>
                                     <button class="o369-menuitem" t-on-click.stop="() => this.toggleFavourite(c)"><i class="fa fa-heart-o"/> <t t-esc="c.favourite ? 'Remove from favourites' : 'Add to favourites'"/></button>
-                                    <button class="o369-menuitem" t-on-click.stop="() => this.muteChat(c)"><i class="fa fa-bell-slash-o"/> <t t-esc="c.muted ? 'Unmute' : 'Mute'"/></button>
+                                    <button class="o369-menuitem" t-on-click.stop="() => this.muteChat(c)"><i class="fa fa-bell-slash-o"/> <t t-esc="c.muted ? 'Unmute' : 'Mute'"/><span t-if="c.muted" class="o369-menusub" t-esc="mutedUntilLabel(c)"/></button>
                                     <button class="o369-menuitem" t-on-click.stop="() => this.openAddToList(c)"><i class="fa fa-folder-o"/> Add to list</button>
                                     <button class="o369-menuitem" t-on-click.stop="() => this.clearChatRow(c)"><i class="fa fa-eraser"/> Clear chat</button>
                                     <button class="o369-menuitem o369-danger" t-on-click.stop="() => this.leaveChatRow(c)"><i class="fa fa-trash"/> <t t-esc="c.is_group ? 'Leave group' : 'Delete chat'"/></button>
                                 </div>
                             </div>
                         </t>
-                        <div class="o369-hint" t-if="filteredConversations().length === 0">No chats yet — tap the pencil to start one.</div>
+                        <!-- Same row, placed after the list when the user has
+                             chosen "Show archived at the bottom". -->
+                        <div class="o369-archrow o369-archrow-bottom" t-if="showArchRow() and state.archPrefs.archive_at_bottom"
+                             t-on-click="() => this.enterArchive()">
+                            <i class="fa fa-archive"/>
+                            <span class="o369-archtxt">Archived</span>
+                            <span t-att-class="state.archivedUnread ? 'o369-archunread' : 'o369-archcount'" t-esc="state.archivedCount"/>
+                        </div>
+                        <div class="o369-hint" t-if="filteredConversations().length === 0">
+                            <t t-if="state.inArchive">No archived chats — use a row's menu to archive one.</t>
+                            <t t-else="">No chats yet — tap the pencil to start one.</t>
+                        </div>
                         <div class="o369-gsearch" t-if="state.search and state.globalMsgs.length">
                             <div class="o369-glabel">Messages</div>
                             <t t-foreach="state.globalMsgs" t-as="gm" t-key="gm.msg_id">
@@ -214,6 +246,7 @@ export class Chat369App extends Component {
                             <div class="o369-hdrmenu" t-if="state.convMenu">
                                 <button class="o369-menuitem" t-on-click.stop="openContactInfo"><i class="fa fa-info-circle"/> <t t-esc="currentIsGroup() ? 'Group info' : 'Contact info'"/></button>
                                 <button class="o369-menuitem" t-on-click.stop="toggleSearch"><i class="fa fa-search"/> Search</button>
+                                <button class="o369-menuitem" t-on-click.stop="muteFromHeader"><i class="fa fa-bell-slash-o"/> <t t-esc="state.activeConv and state.activeConv.muted ? 'Unmute notifications' : 'Mute notifications'"/></button>
                                 <button class="o369-menuitem" t-on-click.stop="exportChat"><i class="fa fa-download"/> Export chat</button>
                                 <button class="o369-menuitem" t-on-click.stop="headerClear"><i class="fa fa-eraser"/> Clear chat</button>
                                 <button class="o369-menuitem o369-danger" t-on-click.stop="headerLeave"><i class="fa fa-trash"/> <t t-esc="currentIsGroup() ? 'Exit group' : 'Delete chat'"/></button>
@@ -327,7 +360,7 @@ export class Chat369App extends Component {
                                             <button class="o369-voicespeed" t-if="state.playingId === m.id" t-on-click.stop="() => this.cycleSpeed()" t-esc="audioSpeedLabel()"/>
                                             <span class="o369-voicetime" t-esc="audioTimeLabel(m)"/>
                                         </div>
-                                        <a t-if="m.kind === 'document' and m.media_url" class="o369-msgdoc" t-att-href="m.media_url" target="_blank"><i class="fa fa-file-o me-2"/><t t-esc="m.file_name or 'Document'"/></a>
+                                        <a t-if="m.kind === 'document' and m.media_url" class="o369-msgdoc" t-att-href="m.media_url" target="_blank"><i class="fa fa-file-o me-2"/><t t-esc="m.file_name or 'Document'"/><span t-if="m.file_size" class="o369-docsize"><t t-esc="humanSize(m.file_size)"/></span></a>
                                         <t t-set="lc" t-value="linkCard(m)"/>
                                         <a t-if="lc" class="o369-linkcard" t-att-href="lc.url" target="_blank" rel="noopener noreferrer">
                                             <img t-if="lc.image" class="o369-linkimg" t-att-src="lc.image" loading="lazy"/>
@@ -507,7 +540,15 @@ export class Chat369App extends Component {
             <div class="o369-pane o369-callspane" t-if="state.pane === 'calls'">
                 <div class="o369-panehead">
                     <div class="o369-panehc"><span class="o369-panetitle">Calls</span><span class="o369-panesub">Favourites, upcoming &amp; recent</span></div>
-                    <button class="o369-iconbtn o369-schedbtn" t-on-click="openSchedule" title="Schedule a call"><i class="fa fa-calendar-plus-o"/></button>
+                </div>
+                <!-- Actions first, history underneath — the same order the app
+                     uses, so the two clients read the same way. -->
+                <div class="o369-callactions">
+                    <button class="o369-callchip" t-on-click="openSchedule"><i class="fa fa-calendar-plus-o"/> Schedule</button>
+                    <button class="o369-callchip" t-on-click="openFavPicker">
+                        <i class="fa fa-heart-o"/> Favourites
+                        <span t-if="state.calls.favorites.length" class="o369-callchipn" t-esc="state.calls.favorites.length"/>
+                    </button>
                 </div>
                 <div class="o369-list">
                     <t t-if="state.calls.favorites.length">
@@ -746,9 +787,77 @@ export class Chat369App extends Component {
                 <div class="o369-modalcard">
                     <div class="o369-modaltitle"><i class="fa fa-bell-slash me-2"/>Mute notifications</div>
                     <button class="o369-modalopt" t-on-click="() => this.confirmMute(8)">8 hours</button>
+                    <button class="o369-modalopt" t-on-click="() => this.confirmMute(24)">1 day</button>
                     <button class="o369-modalopt" t-on-click="() => this.confirmMute(168)">1 week</button>
                     <button class="o369-modalopt" t-on-click="() => this.confirmMute(0)">Always</button>
                     <button class="o369-modalcancel" t-on-click="closeMute">Cancel</button>
+                </div>
+            </div>
+
+            <!-- Archive settings, reached from the ⋮ inside the archive. -->
+            <div class="o369-modal" t-if="state.archSettings" t-on-click.self="() => (state.archSettings = false)">
+                <div class="o369-modalcard">
+                    <div class="o369-modaltitle"><i class="fa fa-archive me-2"/>Archive settings</div>
+                    <label class="o369-archopt">
+                        <span class="o369-archoptmain">
+                            <span class="o369-archopttxt">Keep chats archived</span>
+                            <span class="o369-archoptsub">Archived chats stay archived when a new message arrives. Turn this off and a new message brings the chat back to your list.</span>
+                        </span>
+                        <input type="checkbox" t-att-checked="state.archPrefs.keep_archived"
+                               t-on-change="(ev) => this.setArchPref('keep_archived', ev.target.checked)"/>
+                    </label>
+                    <label class="o369-archopt">
+                        <span class="o369-archoptmain">
+                            <span class="o369-archopttxt">Show archived at the bottom</span>
+                            <span class="o369-archoptsub">Move the Archived row to the end of the chat list instead of the top.</span>
+                        </span>
+                        <input type="checkbox" t-att-checked="state.archPrefs.archive_at_bottom"
+                               t-on-change="(ev) => this.setArchPref('archive_at_bottom', ev.target.checked)"/>
+                    </label>
+                    <button class="o369-modalcancel" t-on-click="() => (state.archSettings = false)">Done</button>
+                </div>
+            </div>
+
+            <!-- Add favourites: multi-select, mirrors the app's picker. -->
+            <div class="o369-modal" t-if="state.favPicker" t-on-click.self="closeFavPicker">
+                <div class="o369-modalcard">
+                    <div class="o369-modaltitle"><i class="fa fa-heart-o me-2"/>Add favourites</div>
+                    <div class="o369-modalhint">Tick to add, untick to remove. Drag ☰ to arrange the order.</div>
+                    <div class="o369-favpicklist">
+                        <div t-if="!state.favPicker.people.length and !state.favPicker.order.length" class="o369-hint">Loading contacts…</div>
+                        <!-- Ticked first, in order and draggable. -->
+                        <t t-foreach="state.favPicker.order" t-as="uid" t-key="uid">
+                            <t t-set="fp" t-value="favPerson(uid)"/>
+                            <div t-if="fp" class="o369-favpickrow" draggable="true"
+                                 t-on-dragstart="() => this.favDragStart(uid)"
+                                 t-on-dragover="(ev) => this.favDragOver(uid, ev)"
+                                 t-on-dragend="favDragEnd"
+                                 t-on-click="() => this.toggleFavPick(uid)">
+                                <i class="fa fa-bars o369-favdrag"/>
+                                <div class="o369-avatar"><img t-if="fp.avatar_url" t-att-src="fp.avatar_url"/><span t-else="" t-esc="initials(fp.name)"/></div>
+                                <div class="o369-rowmain">
+                                    <div class="o369-title" t-esc="fp.name"/>
+                                    <div class="o369-prev" t-if="fp.mobile" t-esc="fp.mobile"/>
+                                </div>
+                                <i class="fa fa-check-circle o369-favpickon"/>
+                            </div>
+                        </t>
+                        <div t-if="state.favPicker.order.length and favUnpicked().length" class="o369-favpickdiv">All contacts</div>
+                        <div class="o369-favpickrow" t-foreach="favUnpicked()" t-as="p" t-key="p.id"
+                             t-on-click="() => this.toggleFavPick(p.id)">
+                            <i class="fa o369-favdrag"/>
+                            <div class="o369-avatar"><img t-if="p.avatar_url" t-att-src="p.avatar_url"/><span t-else="" t-esc="initials(p.name)"/></div>
+                            <div class="o369-rowmain">
+                                <div class="o369-title" t-esc="p.name"/>
+                                <div class="o369-prev" t-if="p.mobile" t-esc="p.mobile"/>
+                            </div>
+                            <i class="fa fa-circle-o"/>
+                        </div>
+                    </div>
+                    <button class="o369-modalopt o369-favpicksave" t-on-click="saveFavourites">
+                        Save<t t-if="favPickCount()"> (<t t-esc="favPickCount()"/>)</t>
+                    </button>
+                    <button class="o369-modalcancel" t-on-click="closeFavPicker">Cancel</button>
                 </div>
             </div>
 
@@ -1010,6 +1119,7 @@ export class Chat369App extends Component {
                     </div>
                     <div class="o369-drawersection">
                         <button class="o369-drawaction" t-on-click="openStarred"><i class="fa fa-star"/> Starred messages</button>
+                        <button class="o369-drawaction" t-on-click="muteFromInfo"><i class="fa fa-bell-slash-o"/> Mute notifications<span t-if="state.contactInfo.muted" class="o369-menusub" t-esc="mutedUntilLabel(state.contactInfo)"/></button>
                         <button class="o369-drawaction" t-on-click="favFromInfo"><i class="fa fa-heart-o"/> <t t-esc="state.contactInfo.favourite ? 'Remove from favourites' : 'Add to favourites'"/></button>
                         <button class="o369-drawaction" t-on-click="addToListFromInfo"><i class="fa fa-folder-o"/> Add to list</button>
                     </div>
@@ -1335,6 +1445,12 @@ export class Chat369App extends Component {
             mediaReview: null, viewOnceView: null,
             composerLink: null, composerLinkHidden: false, previews: {}, theme: 'ocean', call: null,
             calls: { recent: [], favorites: [], upcoming: [] }, scheduleForm: null,
+            favPicker: null,   // { picked: {uid: true}, people: [] } while open
+            // The archive is a destination, not a chip — see enterArchive().
+            inArchive: false, archivedCount: 0, archivedUnread: 0,
+            archSettings: false,
+            // WhatsApp's defaults until /chat/me answers.
+            archPrefs: { keep_archived: true, archive_at_bottom: false },
             mentionOpen: false, mentionMatches: [], mentionIdx: 0, mentionMembers: [], mentionMembersConv: 0, mentionStart: 0, mentionEnd: 0,
             settingsView: 'menu', profileEdit: { field: null, val: '' },
             // Group info redesign / media viewer / permissions (Features 2-4)
@@ -1432,7 +1548,32 @@ export class Chat369App extends Component {
 
     // ---------------- data ----------------
     async loadConversations() {
-        try { const res = await rpc('/chat/conversations', { filter: this.state.filter }); if (res && res.status) this.state.conversations = res.conversations || []; } catch (e) {}
+        // Inside the archive the chips do not apply — it is its own list.
+        const filter = this.state.inArchive ? 'archived' : this.state.filter;
+        try {
+            const res = await rpc('/chat/conversations', { filter });
+            if (res && res.status) {
+                this.state.conversations = res.conversations || [];
+                // Sent with every filter so the "Archived" row can be drawn
+                // without a second request for a list we are not showing.
+                this.state.archivedCount = res.archived_count || 0;
+                this.state.archivedUnread = res.archived_unread || 0;
+            }
+        } catch (e) {}
+    }
+    // Hidden while searching (results are their own thing), inside the archive
+    // itself, and when nothing is archived — "Archived 0" is a dead end.
+    showArchRow() {
+        return !this.state.inArchive && !this.state.search && !!this.state.archivedCount;
+    }
+    enterArchive() { this.state.inArchive = true; this.state.search = ''; this.state.globalMsgs = []; this.loadConversations(); }
+    exitArchive() { this.state.inArchive = false; this.state.archSettings = false; this.loadConversations(); }
+    // Optimistic, then persisted. keep_archived defaults TRUE server-side, so an
+    // older server that omits it must not read as "off" — that would silently
+    // start un-archiving chats.
+    async setArchPref(key, value) {
+        this.state.archPrefs[key] = value;
+        try { await rpc('/chat/settings', { [key]: value }); } catch (e) {}
     }
     async loadLists(convId) {
         try { const res = await rpc('/chat/lists', convId ? { conversation_id: convId } : {}); if (res && res.status) this.state.lists = res.lists || []; } catch (e) {}
@@ -1771,6 +1912,19 @@ export class Chat369App extends Component {
     async markUnread(c) { this.closeMenus(); try { await rpc('/chat/mark_unread', { conversation_id: c.id }); await this.loadConversations(); } catch (e) {} }
     async toggleFavourite(c) { this.closeMenus(); try { await rpc('/chat/favourite', { conversation_id: c.id, favourite: !c.favourite }); await this.loadConversations(); } catch (e) {} }
     muteChat(c) { this.closeMenus(); if (c.muted) this._doMute(c.id, false, 0); else this.state.muteConv = c; }
+    // Mute used to be reachable ONLY from the chat-list row menu. The app offers
+    // it from the thread header and from contact info too, so both are wired here
+    // to the same duration modal rather than a second, quieter code path.
+    muteFromHeader() {
+        const c = this.state.conversations.find((x) => x.id === this.state.selectedId);
+        if (c) this.muteChat(c);
+    }
+    muteFromInfo() {
+        const info = this.state.contactInfo; if (!info) return;
+        const c = this.state.conversations.find((x) => x.id === info.conversation_id);
+        this.state.infoOpen = false;
+        if (c) this.muteChat(c);
+    }
     closeMute() { this.state.muteConv = null; }
     confirmMute(hours) { const c = this.state.muteConv; this.state.muteConv = null; if (c) this._doMute(c.id, true, hours); }
     async _doMute(id, muted, hours) { try { await rpc('/chat/mute', { conversation_id: id, muted, hours }); await this.loadConversations(); } catch (e) {} }
@@ -1912,7 +2066,19 @@ export class Chat369App extends Component {
         else if (p === 'calls') { await this.loadCalls(); }
     }
     async loadMe() {
-        try { const r = await rpc('/chat/me', {}); if (r && r.status) this.state.me = r.me; } catch (e) {}
+        try {
+            const r = await rpc('/chat/me', {});
+            if (r && r.status) {
+                this.state.me = r.me;
+                // keep_archived defaults TRUE server-side, so an older server
+                // that omits it must not read as "off" — that would silently
+                // start un-archiving chats on the next message.
+                this.state.archPrefs = {
+                    keep_archived: r.me.keep_archived !== false,
+                    archive_at_bottom: !!r.me.archive_at_bottom,
+                };
+            }
+        } catch (e) {}
     }
     // ---- change my profile picture ----
     pickAvatar() { const el = this.avatarinput.el; if (el) { el.value = ''; el.click(); } }
@@ -3202,6 +3368,122 @@ export class Chat369App extends Component {
         return Math.max(1, Math.floor(ms / 60000)) + ' min left';
     }
     pinLabel(m) { return this.pinLeft(m.pin_expiry) || 'Pinned'; }
+    // Both of these read fields the server has always sent and the web ignored,
+    // while the app rendered them. Parity runs in this direction too.
+    humanSize(bytes) {
+        if (!bytes) return '';
+        const u = ['B', 'KB', 'MB', 'GB']; let n = bytes, i = 0;
+        while (n >= 1024 && i < u.length - 1) { n /= 1024; i += 1; }
+        return ` · ${n.toFixed(n >= 10 || i === 0 ? 0 : 1)} ${u[i]}`;
+    }
+    // Add favourites, WhatsApp-style: pick one or several people and they join
+    // the shortlist at the top of Calls. "Favourite" is a flag on a
+    // CONVERSATION, not a user, so each pick is resolved to its 1:1 first —
+    // /chat/open_direct is get-or-create, so favouriting someone you have never
+    // messaged works and leaves exactly one chat behind.
+    async openFavPicker() {
+        // Existing favourites open TICKED and in their saved order — this is a
+        // manage dialog, not an add-only one, so un-ticking removes.
+        const favs = this.state.calls.favorites || [];
+        const picked = {};
+        favs.forEach((f) => { if (f.user_id) picked[f.user_id] = true; });
+        this.state.favPicker = {
+            picked,
+            order: favs.map((f) => f.user_id).filter(Boolean),
+            people: [],
+            dragging: null,
+        };
+        try {
+            const res = await rpc('/chat/contacts', { query: '' });
+            if (this.state.favPicker) this.state.favPicker.people = res.contacts || [];
+        } catch (e) { /* an empty list still shows the empty state */ }
+    }
+    closeFavPicker() { this.state.favPicker = null; }
+    toggleFavPick(uid) {
+        const p = this.state.favPicker; if (!p) return;
+        p.picked[uid] = !p.picked[uid];
+        if (p.picked[uid]) { if (!p.order.includes(uid)) p.order.push(uid); }
+        else p.order = p.order.filter((x) => x !== uid);
+    }
+    favPickCount() {
+        const p = this.state.favPicker;
+        return p ? p.order.length : 0;
+    }
+    // Person lookup for the dialog: contacts, with the current favourites folded
+    // in so a favourite missing from the directory still renders.
+    favPerson(uid) {
+        const p = this.state.favPicker; if (!p) return null;
+        const c = p.people.find((x) => x.id === uid);
+        if (c) return c;
+        const f = (this.state.calls.favorites || []).find((x) => x.user_id === uid);
+        return f ? { id: uid, name: f.name, avatar_url: f.avatar, mobile: '' } : null;
+    }
+    favUnpicked() {
+        const p = this.state.favPicker; if (!p) return [];
+        return p.people.filter((x) => !p.picked[x.id]);
+    }
+    // Drag to reorder, HTML5 drag events — no library, and the list is short.
+    favDragStart(uid) { const p = this.state.favPicker; if (p) p.dragging = uid; }
+    favDragOver(uid, ev) {
+        ev.preventDefault();
+        const p = this.state.favPicker;
+        if (!p || p.dragging == null || p.dragging === uid) return;
+        const from = p.order.indexOf(p.dragging);
+        const to = p.order.indexOf(uid);
+        if (from < 0 || to < 0) return;
+        const next = p.order.slice();
+        next.splice(to, 0, next.splice(from, 1)[0]);
+        p.order = next;
+    }
+    favDragEnd() { const p = this.state.favPicker; if (p) p.dragging = null; }
+    async saveFavourites() {
+        const p = this.state.favPicker; if (!p) return;
+        const wanted = p.order.slice();
+        const before = this.state.calls.favorites || [];
+        this.state.favPicker = null;
+        const convByUser = {};
+        before.forEach((f) => { if (f.user_id) convByUser[f.user_id] = f.conversation_id; });
+        try {
+            // Removals first, then additions, then the order.
+            for (const f of before) {
+                if (f.user_id && !wanted.includes(f.user_id)) {
+                    await rpc('/chat/favourite', { conversation_id: f.conversation_id, favourite: false });
+                }
+            }
+            for (const uid of wanted) {
+                if (convByUser[uid]) continue;
+                const conv = await rpc('/chat/open_direct', { user_id: uid });
+                if (conv && conv.id) {
+                    convByUser[uid] = conv.id;
+                    await rpc('/chat/favourite', { conversation_id: conv.id, favourite: true });
+                }
+            }
+            const ordered = wanted.map((uid) => convByUser[uid]).filter(Boolean);
+            if (ordered.length) await rpc('/chat/favourites_order', { conversation_ids: ordered });
+        } catch (e) { /* whatever landed stays; the reload shows the truth */ }
+        await this.loadCalls();
+        this.loadConversations();
+    }
+    // "Muted until 14 Aug, 18:30". muted_until is false for a mute with no
+    // deadline, which is NOT the same as an unmuted chat — check `muted` first.
+    mutedUntilLabel(c) {
+        if (!c || !c.muted) return '';
+        if (!c.muted_until) return 'Muted until you turn it back on';
+        const d = new Date(String(c.muted_until).replace(' ', 'T') + 'Z');
+        if (isNaN(d.getTime())) return 'Muted';
+        if (d.getTime() <= Date.now()) return 'Mute expired';
+        const sameYear = d.getFullYear() === new Date().getFullYear();
+        const date = d.toLocaleDateString([], sameYear
+            ? { day: 'numeric', month: 'short' }
+            : { day: 'numeric', month: 'short', year: 'numeric' });
+        return `Muted until ${date}, ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    previewIcon(kind) {
+        return {
+            image: 'fa-camera', video: 'fa-video-camera', audio: 'fa-microphone',
+            document: 'fa-file-o', poll: 'fa-bar-chart',
+        }[kind] || '';
+    }
 }
 
 registry.category("actions").add("chats_369_app", Chat369App);

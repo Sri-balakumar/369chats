@@ -24,10 +24,12 @@ import MediaViewer from '../components/chat/MediaViewer';
 import MediaPreview from '../components/chat/MediaPreview';
 import AttachSheet from '../components/chat/AttachSheet';
 import VoiceRecorder from '../components/chat/VoiceRecorder';
+import MuteSheet from '../components/chat/MuteSheet';
 import CameraCaptureModal from '../components/CameraCaptureModal';
 import * as chat from '../services/chat';
 import realtime from '../services/chatRealtime';
-import callEngine, { isCallingSupported } from '../services/callEngine';
+import usePlaceCall from '../hooks/usePlaceCall';
+import useBackIntercept from '../hooks/useBackIntercept';
 import { draftFor, setDraft, clearDraft } from '../services/drafts';
 import { copyText } from '../utils/clipboard';
 import useKeyboardHeight from '../utils/useKeyboardHeight';
@@ -68,6 +70,22 @@ function humanSize(bytes) {
   return `${n.toFixed(n >= 10 || i === 0 ? 0 : 1)} ${u[i]}`;
 }
 
+// How long a pin has left. Kept behaviour-identical to pinLeft() in the web
+// client (chat_app.js) — pins always carry an expiry, and without this the pin
+// simply vanished one day with no warning.
+function pinLeft(iso) {
+  if (!iso) return '';
+  const exp = new Date(iso);
+  if (Number.isNaN(exp.getTime())) return '';
+  const ms = exp.getTime() - Date.now();
+  if (ms <= 0) return 'expired';
+  const days = Math.floor(ms / 86400000);
+  const hours = Math.floor((ms % 86400000) / 3600000);
+  if (days >= 1) return `${days} ${days === 1 ? 'day' : 'days'} left`;
+  if (hours >= 1) return `${hours} ${hours === 1 ? 'hour' : 'hours'} left`;
+  return `${Math.max(1, Math.floor(ms / 60000))} min left`;
+}
+
 // Server message → what MessageBubble expects. One place, so bubble stays dumb.
 function toBubble(m) {
   return {
@@ -87,6 +105,20 @@ function toBubble(m) {
     starred: m.starred,
     forwarded: m.forwarded,
     isMeet: m.isMeet,
+    // Call card. These MUST be copied through: this mapper is what MessageBubble
+    // actually receives, so a field missing here reads as undefined in the bubble
+    // — which sent call messages down the centred system-line path and made the
+    // cards silently not render in the app while the web (which uses the raw
+    // message) was fine.
+    isCall: m.isCall,
+    callVideo: m.callVideo,
+    callMissed: m.callMissed,
+    duration: m.duration,
+    // Same trap, two more fields that were silently lost here: `pinned` drives
+    // the per-bubble pin glyph, and `mimetype` is what tells an image from a
+    // video (without it AuthImage caches every attachment as .jpeg).
+    pinned: m.pinned,
+    mimetype: m.mimetype,
     // View-once: the server withholds media_url once it has been opened (and
     // always for the author), so `hasMedia` is what says whether it can still be
     // viewed — not `viewOnce` on its own.
@@ -120,14 +152,6 @@ const PIN_DAYS = [
   { days: 7, label: '7 days' },
   { days: 14, label: '14 days' },
   { days: 30, label: '30 days' },
-];
-
-// hours 0 = until turned off, which is what the server treats as "forever".
-const MUTE_FOR = [
-  { hours: 8, label: '8 hours', confirm: 'for 8 hours' },
-  { hours: 24, label: '1 day', confirm: 'for 1 day' },
-  { hours: 168, label: '1 week', confirm: 'for a week' },
-  { hours: 0, label: 'Until I turn it off', confirm: 'until you turn them back on' },
 ];
 
 export default function ChatThreadScreen({
@@ -171,7 +195,7 @@ export default function ChatThreadScreen({
   const [editing, setEditing] = useState(null);       // message being edited
   const [forwarding, setForwarding] = useState(null); // message being forwarded
   const [pinned, setPinned] = useState([]);           // pinned banner
-  const [pinIdx, setPinIdx] = useState(0);            // which pin the banner shows
+  const [pinsOpen, setPinsOpen] = useState(false);    // the pinned-messages list
   const [pollOpen, setPollOpen] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -197,44 +221,15 @@ export default function ChatThreadScreen({
   const isGroup = !!conversation?.isGroup;
 
   // ── placing a call ─────────────────────────────────────────────────────────
-  // Mirrors canCall() in the web client. `oversight` rows are the admin monitor
-  // view — you are watching someone else's chat, not a participant in it.
-  //
-  // Also gated on the WebRTC native module actually being present: without a real
-  // build there is nothing to place a call with, and offering a button that can
-  // only fail is worse than not showing one.
-  const canCall = isCallingSupported()
-    && !isGroup && !conversation?.oversight && !conversation?.blockedByMe;
-  const [callErr, setCallErr] = useState(null);
+  // Shared with ContactInfoScreen and CallsScreen — see hooks/usePlaceCall for
+  // the gate and the re-entry guard, both of which exist for reasons that are
+  // not obvious from the call site.
+  const { placeCall, callErr, clearCallErr } = usePlaceCall(conversation);
 
-  // startCall resolves to an error STRING (or null); it does not throw, because
-  // every failure here is one the user should simply be told about — no mic
-  // permission, already in a call, the server refusing a blocked contact.
-  //
-  // The ref is a second line of defence against double-firing. callEngine now
-  // guards re-entry itself, but this stops the repeat presses ever reaching it:
-  // a single tap was producing FIVE /chat/call/start requests, each ringing the
-  // callee separately, and the resulting call_id mismatch silently killed the
-  // call. Belt and braces is cheap; a call that dies in "Ringing…" is not.
-  const callingRef = useRef(false);
-  const placeCall = useCallback(async (video) => {
-    if (callingRef.current) return;
-    callingRef.current = true;
-    try {
-      const msg = await callEngine.startCall(
-        {
-          id: convId,
-          title: conversation?.title,
-          avatarUrl: conversation?.avatarUrl,
-          isGroup,
-        },
-        video,
-      );
-      if (msg) setCallErr(msg);
-    } finally {
-      callingRef.current = false;
-    }
-  }, [convId, conversation?.title, conversation?.avatarUrl, isGroup]);
+  // Whether to SHOW the buttons, which is a weaker test than whether a call can
+  // succeed. A missing native module is a property of the build, not of this
+  // chat, so it hides nothing here — see the header for why.
+  const showCall = !isGroup && !conversation?.oversight && !conversation?.blockedByMe;
 
   // ── initial load ───────────────────────────────────────────────────────────
   const load = useCallback(async () => {
@@ -454,20 +449,32 @@ export default function ChatThreadScreen({
   const pushMedia = useCallback(async (opts) => {
     setSending(true);
     setUploadPct(0);
+    // Every media path funnels through here, so this is the one place the reply
+    // has to be attached. sendMedia has always taken replyToId and nothing ever
+    // passed it: replying to a message and then attaching a photo dropped the
+    // reply silently — the send succeeded, just unquoted.
+    const reply = replyTo;
+    setReplyTo(null);
     try {
       // sendMedia has always accepted an onProgress callback; nothing ever
       // passed one, so a large upload looked identical to a hung app.
-      const msg = await chat.sendMedia(convId, opts, (pct) => setUploadPct(pct));
+      const msg = await chat.sendMedia(
+        convId,
+        { ...opts, replyToId: reply?.id },
+        (pct) => setUploadPct(pct),
+      );
       seenIds.current.add(msg.id);
       realtime.noteMessageId(msg.id);
       setMessages((prev) => [msg, ...prev]);
     } catch (e) {
       Alert.alert('Not sent', e?.message || 'Could not send the attachment.');
+      // Give the reply back so the user is not silently dropped out of context.
+      if (reply) setReplyTo(reply);
     } finally {
       setUploadPct(0);
       setSending(false);
     }
-  }, [convId]);
+  }, [convId, replyTo]);
 
   // Gallery — multi-select. Nothing is uploaded here: the picks go to the review
   // tray, where captions, crop, quality and view-once are decided before sending.
@@ -806,6 +813,13 @@ export default function ChatThreadScreen({
     setSearchIdx(0);
   }, []);
 
+  // Android back unwinds the thread's own modes before leaving the thread.
+  // Selection is checked first because it is the more recently opened of the two
+  // — the registry is LIFO, so registration order here decides nothing, but
+  // either mode must be cleared rather than dumping the user back at the list.
+  useBackIntercept(searchMode, () => { closeSearch(); return true; });
+  useBackIntercept(!!selected, () => { setSelected(null); setSelMenu(false); return true; });
+
   // Jump to a message by id — used by the pinned banner and by search hits.
   // If it is already loaded we just scroll; if not, pull the window around it.
   const jumpTo = useCallback(async (messageId) => {
@@ -824,6 +838,20 @@ export default function ChatThreadScreen({
       Alert.alert('Could not open', e?.message || 'That message could not be loaded.');
     }
   }, [messages, convId]);
+
+  // Unpin straight from the banner. The pinned row is a lighter shape than a
+  // thread message, so this goes through the id rather than replaceMsg — the
+  // message may not even be loaded in the current window.
+  const unpin = useCallback(async (pm) => {
+    if (!pm?.id) return;
+    try {
+      await chat.pinMessage(pm.id, false);
+      setPinned((prev) => prev.filter((p) => p.id !== pm.id));
+      setMessages((prev) => prev.map((x) => (x.id === pm.id ? { ...x, pinned: false } : x)));
+    } catch (e) {
+      Alert.alert('Could not unpin', e?.message || 'Please try again.');
+    }
+  }, []);
 
   const loadPinned = useCallback(async () => {
     try { setPinned(await chat.fetchPinned(convId)); } catch (_) { /* banner is optional */ }
@@ -891,7 +919,10 @@ export default function ChatThreadScreen({
         {/* Reaction strip, floating directly above the selected bubble. Rendered
             in the cell rather than absolutely positioned so it can never end up
             off-screen on a short or very long message. */}
-        {isSel && !item.deleted && (
+        {/* Not for call cards: reacting to a call record is meaningless, and the
+            server stores them as system messages that no client renders
+            reactions on anyway. */}
+        {isSel && !item.deleted && !item.isCall && (
           <View style={[s.reactStrip, item.mine ? s.reactStripMine : s.reactStripTheirs]}>
             {QUICK_REACTIONS.map((e) => {
               const on = (item.reactions || []).some((r) => r.emoji === e && r.mine);
@@ -1073,25 +1104,43 @@ export default function ChatThreadScreen({
             <Ionicons name="close" size={23} color={COLORS.navy} />
           </TouchableOpacity>
           <View style={{ flex: 1 }} />
-          {!m.deleted && (
+          {/* A call record is not a message: replying to it, starring it or
+              forwarding it makes no sense, and pin/copy/edit even less. It gets
+              Info and Delete, nothing else — so there is no ⋮ either. */}
+          {m.isCall ? (
             <>
-              <TouchableOpacity onPress={() => { setSelected(null); setReplyTo(m); }} hitSlop={HIT} style={s.selBtn}>
-                <Ionicons name="arrow-undo-outline" size={21} color={COLORS.navy} />
+              {m.mine && (
+                <TouchableOpacity onPress={() => act('info', m)} hitSlop={HIT} style={s.selBtn}>
+                  <Ionicons name="information-circle-outline" size={22} color={COLORS.navy} />
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity onPress={() => confirmDelete(m)} hitSlop={HIT} style={s.selBtn}>
+                <Ionicons name="trash-outline" size={21} color={COLORS.red} />
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => act('star', m)} hitSlop={HIT} style={s.selBtn}>
-                <Ionicons name={m.starred ? 'star' : 'star-outline'} size={21} color={m.starred ? COLORS.amber : COLORS.navy} />
+            </>
+          ) : (
+            <>
+              {!m.deleted && (
+                <>
+                  <TouchableOpacity onPress={() => { setSelected(null); setReplyTo(m); }} hitSlop={HIT} style={s.selBtn}>
+                    <Ionicons name="arrow-undo-outline" size={21} color={COLORS.navy} />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => act('star', m)} hitSlop={HIT} style={s.selBtn}>
+                    <Ionicons name={m.starred ? 'star' : 'star-outline'} size={21} color={m.starred ? COLORS.amber : COLORS.navy} />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => act('forward', m)} hitSlop={HIT} style={s.selBtn}>
+                    <Ionicons name="arrow-redo-outline" size={21} color={COLORS.navy} />
+                  </TouchableOpacity>
+                </>
+              )}
+              <TouchableOpacity onPress={() => confirmDelete(m)} hitSlop={HIT} style={s.selBtn}>
+                <Ionicons name="trash-outline" size={21} color={COLORS.red} />
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => act('forward', m)} hitSlop={HIT} style={s.selBtn}>
-                <Ionicons name="arrow-redo-outline" size={21} color={COLORS.navy} />
+              <TouchableOpacity onPress={() => setSelMenu(true)} hitSlop={HIT} style={s.selBtn}>
+                <Ionicons name="ellipsis-vertical" size={20} color={COLORS.navy} />
               </TouchableOpacity>
             </>
           )}
-          <TouchableOpacity onPress={() => confirmDelete(m)} hitSlop={HIT} style={s.selBtn}>
-            <Ionicons name="trash-outline" size={21} color={COLORS.red} />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setSelMenu(true)} hitSlop={HIT} style={s.selBtn}>
-            <Ionicons name="ellipsis-vertical" size={20} color={COLORS.navy} />
-          </TouchableOpacity>
     </View>
   ) : null;
 
@@ -1163,10 +1212,14 @@ export default function ChatThreadScreen({
             </Text>
           </View>
         </TouchableOpacity>
-        {/* Same gate as the web client's canCall(): 1:1 only, not an admin
-            monitor row, not someone you've blocked. The server refuses the rest
-            anyway — this just avoids offering a button that can only fail. */}
-        {canCall && (
+        {/* Voice and video, opposite the name, exactly where WhatsApp puts them.
+            Shown for any 1:1 you are actually in — deliberately NOT gated on the
+            WebRTC module being present. Hiding them when it is missing made the
+            buttons silently vanish on a build without the native module, which
+            reads as "the feature is gone" rather than "this build can't".
+            placeCall explains that case instead. Groups stay excluded: the
+            server refuses group calls outright. */}
+        {showCall && (
           <>
             <TouchableOpacity
               onPress={() => placeCall(true)}
@@ -1202,21 +1255,35 @@ export default function ChatThreadScreen({
         <TouchableOpacity
           style={s.pinBar}
           activeOpacity={0.8}
-          // Tapping jumps to the pinned message. With several pinned, each tap
-          // advances to the next one, which is how the web client cycles them.
+          // One pin jumps straight to it. Several open the list, like the web —
+          // cycling an index made you tap blind through the others to reach the
+          // one you wanted, with no idea what they were.
           onPress={() => {
-            const next = (pinIdx + 1) % pinned.length;
-            jumpTo(pinned[pinIdx]?.id);
-            if (pinned.length > 1) setPinIdx(next);
+            if (pinned.length > 1) setPinsOpen(true);
+            else jumpTo(pinned[0]?.id);
           }}
         >
           <Ionicons name="pin" size={15} color={COLORS.primary} />
-          <Text style={s.pinTxt} numberOfLines={1}>
-            {pinned[pinIdx]?.body || pinned[pinIdx]?.fileName || 'Pinned message'}
-          </Text>
+          <View style={{ flex: 1 }}>
+            <Text style={s.pinTxt} numberOfLines={1}>
+              {pinned[0]?.body || pinned[0]?.fileName || 'Pinned message'}
+            </Text>
+            {/* Every pin expires (1/7/14/30 days). Not showing it meant a pin
+                disappeared with no warning — the web has shown this all along. */}
+            {!!pinLeft(pinned[0]?.pinExpiry) && (
+              <Text style={s.pinLeft}>{pinLeft(pinned[0]?.pinExpiry)}</Text>
+            )}
+          </View>
           {pinned.length > 1 && (
-            <Text style={s.pinCount}>{pinIdx + 1}/{pinned.length}</Text>
+            <Text style={s.pinCount}>+{pinned.length - 1} more</Text>
           )}
+          {/* Unpin without hunting for the message first, as the web allows. */}
+          <TouchableOpacity
+            onPress={() => unpin(pinned[0])}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Ionicons name="close" size={16} color={COLORS.slate400} />
+          </TouchableOpacity>
         </TouchableOpacity>
       )}
 
@@ -1267,6 +1334,14 @@ export default function ChatThreadScreen({
             sending={sending}
             uploadPct={uploadPct}
             replyTo={replyTo}
+            // The lock row has existed in Composer from the start with nothing
+            // ever passing these, so a blocked contact or a read-only oversight
+            // row still showed a live composer: you typed, hit send, and only
+            // then got a rejection Alert from the server.
+            disabled={!!conversation?.oversight || !!conversation?.blockedByMe}
+            disabledReason={conversation?.oversight
+              ? 'Monitoring (read-only) — you are not a member of this chat.'
+              : 'You blocked this contact. Unblock them from Contact info to send messages.'}
             onCancelReply={() => setReplyTo(null)}
             emojiOpen={emojiOpen}
             onToggleEmoji={setEmojiOpen}
@@ -1391,24 +1466,54 @@ export default function ChatThreadScreen({
       </PopupModal>
 
       {/* Mute duration, including "until I turn it off" (hours: 0 = forever). */}
-      <PopupModal visible={muteAsk} onClose={() => setMuteAsk(false)} title="Mute notifications">
-        {MUTE_FOR.map((m) => (
-          <TouchableOpacity
-            key={m.label}
-            style={s.askRow}
-            activeOpacity={0.75}
-            onPress={async () => {
-              setMuteAsk(false);
-              try {
-                await chat.muteConversation(convId, true, m.hours);
-                Alert.alert('Muted', `Notifications are off ${m.confirm}.`);
-              } catch (e) { Alert.alert('Failed', e?.message || 'Could not mute.'); }
-            }}
-          >
-            <Text style={s.askTxt}>{m.label}</Text>
-          </TouchableOpacity>
-        ))}
+      {/* Every pin at once, with author, time left and a per-item unpin —
+          matching the web's pinned-messages modal. Tapping one jumps to it. */}
+      <PopupModal
+        visible={pinsOpen}
+        onClose={() => setPinsOpen(false)}
+        title={`Pinned messages (${pinned.length})`}
+      >
+        <ScrollView style={{ maxHeight: 340 }} showsVerticalScrollIndicator={false}>
+          {pinned.map((pm) => (
+            <TouchableOpacity
+              key={pm.id}
+              style={s.pinRow}
+              activeOpacity={0.75}
+              onPress={() => { setPinsOpen(false); jumpTo(pm.id); }}
+            >
+              <Ionicons name="pin" size={15} color={COLORS.primary} />
+              <View style={{ flex: 1 }}>
+                <Text style={s.pinRowAuthor} numberOfLines={1}>
+                  {pm.mine ? 'You' : (pm.authorName || 'Someone')}
+                </Text>
+                <Text style={s.pinRowBody} numberOfLines={2}>
+                  {pm.body || pm.fileName || 'Message'}
+                </Text>
+                {!!pinLeft(pm.pinExpiry) && (
+                  <Text style={s.pinLeft}>{pinLeft(pm.pinExpiry)}</Text>
+                )}
+              </View>
+              <TouchableOpacity
+                onPress={() => unpin(pm)}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                <Ionicons name="close" size={17} color={COLORS.slate400} />
+              </TouchableOpacity>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
       </PopupModal>
+
+      <MuteSheet
+        visible={muteAsk}
+        onClose={() => setMuteAsk(false)}
+        onPick={async (hours, opt) => {
+          try {
+            await chat.muteConversation(convId, true, hours);
+            Alert.alert('Muted', `Notifications are off ${opt.confirm}.`);
+          } catch (e) { Alert.alert('Failed', e?.message || 'Could not mute.'); }
+        }}
+      />
 
       <MediaPreview
         visible={!!previewItems?.length}
@@ -1487,7 +1592,7 @@ export default function ChatThreadScreen({
         message={callErr || ''}
         actions={[]}
         cancelLabel="OK"
-        onCancel={() => setCallErr(null)}
+        onCancel={clearCallErr}
       />
     </Screen>
   );
@@ -1722,7 +1827,16 @@ const s = themed((C) => ({
     backgroundColor: COLORS.tintBg, borderLeftWidth: 3, borderLeftColor: C.primary,
     paddingHorizontal: SPACING.screen, paddingVertical: SPACING.md,
   },
-  pinTxt: { flex: 1, fontSize: 13, color: C.slate700, fontWeight: '600' },
+  pinTxt: { fontSize: 13, color: C.slate700, fontWeight: '600' },
+  pinLeft: { fontSize: 10.5, color: C.slate400, marginTop: 1 },
+  // SPACING.xl to line up with PopupModal's header inset.
+  pinRow: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.md,
+    paddingVertical: 11, paddingHorizontal: SPACING.xl,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
+  },
+  pinRowAuthor: { fontSize: 12.5, fontWeight: '800', color: C.primary },
+  pinRowBody: { fontSize: 13.5, color: C.slate700, marginTop: 1 },
   pinCount: { fontSize: 11.5, fontWeight: '800', color: C.primary },
 
   editWrap: { borderTopWidth: 1, borderTopColor: C.line, backgroundColor: COLORS.card, paddingBottom: Platform.OS === 'ios' ? 22 : SPACING.sm },

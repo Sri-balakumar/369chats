@@ -1,13 +1,12 @@
 // CALLS — history, favourites and scheduled calls.
 //
-// PLACING a call is still not possible, and needs more than the missing native
-// module: ring events travel only on the Odoo bus, and services/chatRealtime.js
-// is a poller that stops when backgrounded, so an incoming call would arrive
-// late or not at all. It also needs a TURN server — _ice_servers() returns
-// Google STUN only, so mobile-to-mobile fails on most carrier networks.
+// Calls CAN be placed from here: favourites offer voice and video, and a Recent
+// row calls back in whatever mode it was. All of it goes through
+// hooks/usePlaceCall, the same path the chat thread uses.
 //
-// Everything that does NOT need WebRTC works here: scheduling, cancelling,
-// favourites and history are plain JSON routes.
+// Still outstanding, and worth knowing before blaming this screen: _ice_servers()
+// returns Google STUN only, with no TURN, so calls between two mobile networks
+// still fail to connect. That is a server-side gap, not a UI one.
 //
 // Two server behaviours worth knowing while reading this:
 //   • a cron trims chat.call rows older than 60 days, so history is not "all time"
@@ -16,7 +15,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, SectionList,
-  RefreshControl, Alert, ScrollView,
+  RefreshControl, Alert, ScrollView, PanResponder,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,6 +25,9 @@ import {
 } from '../components/ui';
 import { TABBAR_SPACE } from '../components/chat/BottomTabs';
 import * as chat from '../services/chat';
+import usePlaceCall from '../hooks/usePlaceCall';
+import DialPad from '../components/chat/DialPad';
+import { lockSwipe, unlockSwipe } from '../components/chat/SwipeTabs';
 import { createLogger } from '../api/logger';
 
 const log = createLogger('Calls');
@@ -74,12 +76,77 @@ function dayLabel(offset) {
   return d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
+// Height of one row in the favourites dialog. Fixed, because the drag handle
+// converts distance moved into places moved by dividing by it — which avoids
+// measuring anything, and avoids a drag-and-drop dependency.
+const FAV_ROW_H = 56;
+
+// A row in the favourites dialog. Tapping anywhere toggles; the ☰ handle on the
+// left drags to reorder, and only appears once the person is actually a
+// favourite — there is nothing to order otherwise.
+function FavPickRow({ person, picked, onToggle, onMove }) {
+  const drag = React.useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dy) > 4,
+      onPanResponderRelease: (_e, g) => {
+        const places = Math.round(g.dy / FAV_ROW_H);
+        if (places) onMove(places);
+      },
+    }),
+  ).current;
+
+  return (
+    <TouchableOpacity style={s.pickRow} activeOpacity={0.75} onPress={onToggle}>
+      {picked ? (
+        <View style={s.dragHandle} {...drag.panHandlers}>
+          <Ionicons name="reorder-two-outline" size={20} color={COLORS.slate400} />
+        </View>
+      ) : (
+        <View style={s.dragHandle} />
+      )}
+      <Avatar name={person.name} uri={person.avatarUrl} size={38} />
+      <View style={{ flex: 1 }}>
+        <Text style={s.pickName} numberOfLines={1}>{person.name}</Text>
+        {!!person.mobile && <Text style={s.pickSub} numberOfLines={1}>{person.mobile}</Text>}
+      </View>
+      <Ionicons
+        name={picked ? 'checkmark-circle' : 'ellipse-outline'}
+        size={22}
+        color={picked ? COLORS.primary : COLORS.slate400}
+      />
+    </TouchableOpacity>
+  );
+}
+
+// One of the three top actions: Schedule, Keypad, Favourites.
+function ActionChip({ icon, label, onPress }) {
+  return (
+    <TouchableOpacity style={s.actChip} onPress={onPress} activeOpacity={0.8}>
+      <Ionicons name={icon} size={17} color={COLORS.primary} />
+      <Text style={s.actChipTxt}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
 export default function CallsScreen({ onOpenChat }) {
   const insets = useSafeAreaInsets();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+
+  // No conversation is passed: every row targets a different contact, so each
+  // button supplies its own target. Buttons are never hidden for a missing
+  // WebRTC module — placeCall explains that instead of silently disappearing.
+  const { placeCall, callErr, clearCallErr } = usePlaceCall();
+  const [padOpen, setPadOpen] = useState(false);
+  const [favOpen, setFavOpen] = useState(false);   // the add-favourites picker
+  const [favPick, setFavPick] = useState({});      // userId → selected
+  const [favOrder, setFavOrder] = useState([]);    // userIds, in arranged order
+  const [people, setPeople] = useState([]);        // contacts, fetched once
+  const [busyFav, setBusyFav] = useState(false);
+  const [confirmUnfav, setConfirmUnfav] = useState(null);
 
   // ── schedule dialog ────────────────────────────────────────────────────────
   const [schedOpen, setSchedOpen] = useState(false);
@@ -149,15 +216,119 @@ export default function CallsScreen({ onOpenChat }) {
     catch (e) { Alert.alert('Failed', e?.message || 'Please try again.'); }
   }, [load]);
 
-  const notYet = () => Alert.alert(
-    'Calling not available yet',
-    'Voice and video calling need the WebRTC module in the app build, a realtime connection for ringing, and a TURN server on the Odoo side. Meeting links work today — open a chat and use “Start a meeting”.',
-  );
-
+  // Favourites are their own strip above the list (see below), so the sections
+  // here are just the history — Upcoming, then Recent.
   const sections = [];
-  if (data?.upcoming?.length) sections.push({ title: 'Scheduled', data: data.upcoming, kind: 'upcoming' });
-  if (data?.favorites?.length) sections.push({ title: 'Favourites', data: data.favorites, kind: 'fav' });
+  if (data?.upcoming?.length) sections.push({ title: 'Upcoming', data: data.upcoming, kind: 'upcoming' });
   if (data?.recent?.length) sections.push({ title: 'Recent', data: data.recent, kind: 'recent' });
+
+  // Manage favourites, WhatsApp-style. The dialog is not "add" only: whoever is
+  // already a favourite opens ticked, and un-ticking removes them. It also owns
+  // the order — drag a row by its handle and that ordering is what the strip
+  // above shows, on this device and on the web.
+  //
+  // "Favourite" is a flag on a CONVERSATION, not on a user, so each pick has to
+  // be resolved to its 1:1 first. openDirect is get-or-create, so favouriting
+  // someone you have never messaged works and leaves exactly one chat behind.
+  const openFavPicker = useCallback(async () => {
+    // Current favourites first, in their saved order, pre-ticked.
+    const favs = data?.favorites || [];
+    const picked = {};
+    favs.forEach((f) => { if (f.userId) picked[f.userId] = true; });
+    setFavPick(picked);
+    setFavOrder(favs.map((f) => f.userId).filter(Boolean));
+    setFavOpen(true);
+    try {
+      const list = await chat.fetchContacts('');
+      setPeople(list || []);
+    } catch (e) { log.warn('contacts failed', e?.message); }
+  }, [data]);
+
+  const saveFavourites = useCallback(async () => {
+    const wanted = Object.keys(favPick).filter((k) => favPick[k]).map(Number);
+    const before = (data?.favorites || []);
+    setFavOpen(false);
+    setBusyFav(true);
+    try {
+      // Removals first: anything that was a favourite and is no longer ticked.
+      for (const f of before) {
+        if (f.userId && !wanted.includes(f.userId)) {
+          await chat.favouriteConversation(f.conversationId, false);
+        }
+      }
+      // Additions, resolving each person to their 1:1.
+      const convByUser = {};
+      before.forEach((f) => { if (f.userId) convByUser[f.userId] = f.conversationId; });
+      for (const uid of wanted) {
+        if (convByUser[uid]) continue;
+        const conv = await chat.openDirect(uid);
+        convByUser[uid] = conv.id;
+        await chat.favouriteConversation(conv.id, true);
+      }
+      // Then the order, in the arrangement shown in the dialog. Anything ticked
+      // but never dragged goes on the end.
+      const ordered = [
+        ...favOrder.filter((uid) => wanted.includes(uid)),
+        ...wanted.filter((uid) => !favOrder.includes(uid)),
+      ].map((uid) => convByUser[uid]).filter(Boolean);
+      if (ordered.length) await chat.setFavouritesOrder(ordered);
+      await load();
+    } catch (e) {
+      Alert.alert('Failed', e?.message || 'Could not save favourites.');
+      load();
+    } finally {
+      setBusyFav(false);
+    }
+  }, [favPick, favOrder, data, load]);
+
+  // Contacts by user id, with the current favourites folded in. A favourite is
+  // not guaranteed to appear in /chat/contacts (the directory can be filtered),
+  // and a row that vanished from the dialog would look like it had been removed
+  // — so the favourite's own name/avatar is the fallback.
+  const byId = {};
+  (data?.favorites || []).forEach((f) => {
+    if (f.userId) byId[f.userId] = { id: f.userId, name: f.name, avatarUrl: f.avatarUrl, mobile: '' };
+  });
+  people.forEach((p) => { byId[p.id] = p; });
+
+  // Toggling in the dialog also maintains the order list, so a newly ticked
+  // person is immediately draggable rather than appearing only after saving.
+  const toggleFav = useCallback((uid) => {
+    setFavPick((m) => {
+      const next = { ...m, [uid]: !m[uid] };
+      setFavOrder((ord) => (next[uid]
+        ? (ord.includes(uid) ? ord : [...ord, uid])
+        : ord.filter((x) => x !== uid)));
+      return next;
+    });
+  }, []);
+
+  // Drag-reorder: the handle reports how far it moved, which divided by the row
+  // height is how many places to travel. Rows are a fixed height here, so this
+  // needs no measurement and no extra dependency.
+  const moveFav = useCallback((uid, delta) => {
+    setFavOrder((ord) => {
+      const from = ord.indexOf(uid);
+      if (from < 0) return ord;
+      const to = Math.max(0, Math.min(ord.length - 1, from + delta));
+      if (to === from) return ord;
+      const next = ord.slice();
+      next.splice(to, 0, next.splice(from, 1)[0]);
+      return next;
+    });
+  }, []);
+
+  // Keypad → contact → conversation → ring. openDirect is get-or-create, so
+  // calling the same person twice never leaves a duplicate chat behind.
+  const callContact = useCallback(async (contact, video) => {
+    setPadOpen(false);
+    try {
+      const conv = await chat.openDirect(contact.id);
+      placeCall(video, { ...conv, name: conv.title || contact.name });
+    } catch (e) {
+      Alert.alert('Could not call', e?.message || 'Please try again.');
+    }
+  }, [placeCall]);
 
   const renderRow = ({ item, section }) => {
     if (section.kind === 'upcoming') {
@@ -199,8 +370,22 @@ export default function CallsScreen({ onOpenChat }) {
           <TouchableOpacity onPress={() => unfavourite(item)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
             <Ionicons name="heart" size={20} color={COLORS.red} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={notYet} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+          {/* Voice AND video, like the web's two quick-call buttons. These used
+              to be one button showing "Calling not available yet" — true when
+              written, wrong since the app gained WebRTC. */}
+          {/* Always shown. A build without the WebRTC module gets an explanation
+              from placeCall rather than a row that quietly loses its buttons. */}
+          <TouchableOpacity
+            onPress={() => placeCall(false, item)}
+            hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+          >
             <Ionicons name="call-outline" size={21} color={COLORS.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => placeCall(true, item)}
+            hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+          >
+            <Ionicons name="videocam-outline" size={21} color={COLORS.primary} />
           </TouchableOpacity>
         </TouchableOpacity>
       );
@@ -220,7 +405,15 @@ export default function CallsScreen({ onOpenChat }) {
             </Text>
           </View>
         </View>
-        <Ionicons name={item.video ? 'videocam-outline' : 'call-outline'} size={20} color={COLORS.primary} />
+        {/* Call back, in the same mode as the original call. This glyph was a
+            bare <Ionicons> with no onPress — it looked like a button and did
+            nothing. */}
+        <TouchableOpacity
+          onPress={() => placeCall(!!item.video, item)}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons name={item.video ? 'videocam-outline' : 'call-outline'} size={20} color={COLORS.primary} />
+        </TouchableOpacity>
       </TouchableOpacity>
     );
   };
@@ -229,11 +422,51 @@ export default function CallsScreen({ onOpenChat }) {
     <Screen>
       <View style={[s.header, { paddingTop: TOP }]}>
         <Text style={s.headerTitle}>Calls</Text>
-        <TouchableOpacity style={s.schedBtn} onPress={openSchedule} activeOpacity={0.85}>
-          <Ionicons name="calendar-outline" size={16} color={COLORS.primary} />
-          <Text style={s.schedBtnTxt}>Schedule</Text>
-        </TouchableOpacity>
       </View>
+
+      {/* Schedule · Keypad · Favourites, above the history — WhatsApp puts the
+          actions where your thumb already is and lets the log scroll under. */}
+      <View style={s.actions}>
+        <ActionChip icon="calendar-outline" label="Schedule" onPress={openSchedule} />
+        <ActionChip icon="keypad-outline" label="Keypad" onPress={() => setPadOpen(true)} />
+        <ActionChip icon="heart-outline" label="Favourites" onPress={openFavPicker} />
+      </View>
+
+      {/* The favourites themselves, as a strip right under the actions. Tap to
+          call, long-press to remove — the same shortlist WhatsApp keeps at the
+          top of its Calls tab. */}
+      {!!data?.favorites?.length && (
+        <View style={s.favWrap}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={s.favStrip}
+            onTouchStart={lockSwipe}
+            onTouchEnd={unlockSwipe}
+            onTouchCancel={unlockSwipe}
+          >
+            {data.favorites.map((f) => (
+              <TouchableOpacity
+                key={f.conversationId}
+                style={s.fav}
+                activeOpacity={0.75}
+                onPress={() => placeCall(false, f)}
+                onLongPress={() => setConfirmUnfav(f)}
+                delayLongPress={300}
+              >
+                <Avatar name={f.name} uri={f.avatarUrl} size={50} />
+                <Text style={s.favName} numberOfLines={1}>{f.name}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={s.fav} activeOpacity={0.75} onPress={openFavPicker}>
+              <View style={s.favAdd}>
+                <Ionicons name="add" size={24} color={COLORS.primary} />
+              </View>
+              <Text style={s.favName} numberOfLines={1}>Add</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      )}
 
       {loading ? <Loader /> : error ? (
         <View style={emptyWrap}>
@@ -259,7 +492,7 @@ export default function CallsScreen({ onOpenChat }) {
             <EmptyState
               icon="call-outline"
               title="No calls yet"
-              sub="Schedule one with the button above. Placing calls needs the WebRTC build."
+              sub="Add a favourite for one-tap calling, use Keypad to find someone by number, or schedule one for later."
             />
           }
         />
@@ -381,6 +614,85 @@ export default function CallsScreen({ onOpenChat }) {
         cancelLabel="Keep it"
         onCancel={() => setConfirmCancel(null)}
       />
+
+      {/* Add favourites — multi-select, like WhatsApp's "Add favourite". */}
+      <PopupModal
+        visible={favOpen}
+        onClose={() => { setFavOpen(false); setFavPick({}); }}
+        title="Favourites"
+        subtitle="Tick to add, untick to remove. Drag ☰ to arrange the order."
+      >
+        <ScrollView style={{ maxHeight: 340 }} showsVerticalScrollIndicator={false}>
+          {!people.length && <Text style={s.favNone}>Loading contacts…</Text>}
+          {/* Ticked people first, in their arranged order and draggable, then
+              everyone else. Putting them on top is what makes reordering make
+              sense — you are arranging a shortlist, not scrolling a directory. */}
+          {favOrder.map((uid) => {
+            const p = byId[uid];
+            if (!p) return null;
+            return (
+              <FavPickRow
+                key={`fav-${uid}`}
+                person={p}
+                picked
+                onToggle={() => toggleFav(uid)}
+                onMove={(places) => moveFav(uid, places)}
+              />
+            );
+          })}
+          {favOrder.length > 0 && people.some((p) => !favPick[p.id]) && (
+            <Text style={s.pickDivider}>All contacts</Text>
+          )}
+          {people.filter((p) => !favPick[p.id]).map((p) => (
+            <FavPickRow
+              key={p.id}
+              person={p}
+              picked={false}
+              onToggle={() => toggleFav(p.id)}
+              onMove={() => {}}
+            />
+          ))}
+        </ScrollView>
+        <TouchableOpacity
+          style={[s.favSave, busyFav && { opacity: 0.6 }]}
+          onPress={saveFavourites}
+          activeOpacity={0.85}
+          disabled={busyFav}
+        >
+          <Text style={s.favSaveTxt}>
+            {busyFav ? 'Saving…' : `Save${favOrder.length ? ` (${favOrder.length})` : ''}`}
+          </Text>
+        </TouchableOpacity>
+      </PopupModal>
+
+      <ConfirmDialog
+        visible={!!confirmUnfav}
+        icon="heart-dislike-outline"
+        title="Remove favourite?"
+        message={confirmUnfav ? `${confirmUnfav.name} will no longer show at the top.` : ''}
+        actions={[{
+          key: 'unfav', label: 'Remove', tone: 'danger',
+          onPress: () => { const f = confirmUnfav; setConfirmUnfav(null); unfavourite(f); },
+        }]}
+        onCancel={() => setConfirmUnfav(null)}
+      />
+
+      <DialPad
+        visible={padOpen}
+        onClose={() => setPadOpen(false)}
+        onCall={callContact}
+      />
+
+      <ConfirmDialog
+        visible={!!callErr}
+        icon="call-outline"
+        tone="danger"
+        title="Can't start the call"
+        message={callErr || ''}
+        actions={[]}
+        cancelLabel="OK"
+        onCancel={clearCallErr}
+      />
     </Screen>
   );
 }
@@ -391,12 +703,52 @@ const s = themed((C) => ({
     paddingHorizontal: SPACING.xl, paddingBottom: SPACING.md,
   },
   headerTitle: { fontSize: 20, fontWeight: '900', color: C.navy },
-  schedBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    backgroundColor: C.tintBg, borderRadius: RADIUS.pill,
-    paddingHorizontal: SPACING.screen, paddingVertical: 7,
+
+  // The three top actions.
+  actions: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
+    paddingHorizontal: SPACING.xl, paddingBottom: SPACING.md,
   },
-  schedBtnTxt: { fontSize: 13, fontWeight: '800', color: C.primary },
+  // NOT named `chip` — the schedule dialog further down already owns that key,
+  // and a duplicate silently loses to whichever is declared last.
+  actChip: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5,
+    backgroundColor: C.tintBg, borderRadius: RADIUS.pill,
+    paddingHorizontal: SPACING.md, paddingVertical: 9,
+  },
+  actChipTxt: { fontSize: 12.5, fontWeight: '800', color: C.primary },
+
+  // Favourites strip.
+  favWrap: { paddingBottom: SPACING.md },
+  favStrip: { paddingHorizontal: SPACING.xl, gap: SPACING.lg },
+  fav: { alignItems: 'center', width: 62 },
+  favAdd: {
+    width: 50, height: 50, borderRadius: 25,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: C.tintBg, borderWidth: 1, borderColor: C.line, borderStyle: 'dashed',
+  },
+  favName: { fontSize: 11, color: C.slate500, marginTop: 4, textAlign: 'center' },
+  favNone: { fontSize: 13, color: C.slate500, textAlign: 'center', paddingVertical: SPACING.lg },
+
+  // Add-favourites picker.
+  // Fixed height — the drag handle divides distance by it to get places moved.
+  pickRow: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
+    height: FAV_ROW_H, paddingHorizontal: SPACING.lg,
+  },
+  // Always present, even when empty, so ticking someone does not shift the row.
+  dragHandle: { width: 24, alignItems: 'center', justifyContent: 'center', alignSelf: 'stretch' },
+  pickName: { fontSize: 14.5, fontWeight: '700', color: C.ink },
+  pickSub: { fontSize: 11.5, color: C.slate500 },
+  pickDivider: {
+    fontSize: 11, fontWeight: '900', color: C.muted, letterSpacing: 0.7,
+    textTransform: 'uppercase', paddingHorizontal: SPACING.lg, paddingTop: SPACING.md, paddingBottom: 4,
+  },
+  favSave: {
+    marginTop: SPACING.md, marginHorizontal: SPACING.xl, borderRadius: RADIUS.md, backgroundColor: C.primary,
+    paddingVertical: 11, alignItems: 'center',
+  },
+  favSaveTxt: { fontSize: 14.5, fontWeight: '800', color: C.onPrimary },
   section: {
     fontSize: 12, fontWeight: '900', color: C.muted, letterSpacing: 0.7,
     paddingHorizontal: SPACING.screen, paddingTop: SPACING.screen,

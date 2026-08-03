@@ -21,6 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Avatar } from '../components/ui';
 import callEngine from '../services/callEngine';
+import useBackIntercept from '../hooks/useBackIntercept';
 import { RADIUS, SPACING, themed } from '../theme';
 
 // Optional native view — see the note in services/callEngine.js. Without WebRTC
@@ -63,6 +64,13 @@ export default function CallScreen() {
   const hideTimer = useRef(null);
 
   useEffect(() => callEngine.subscribe(setCall), []);
+
+  // Android back during a call is SWALLOWED, not treated as "hang up". This
+  // layer sits above whatever screen was showing, so without an intercept the
+  // press would fall through to the router and navigate — or exit the app —
+  // underneath a live call. Ending it deliberately requires the red button;
+  // one stray back press should never drop a call. WhatsApp behaves the same.
+  useBackIntercept(!!call, () => true);
 
   // Vibrate only while genuinely ringing in. Tied to the rendered state rather
   // than to an engine event so it can never outlive the UI that started it.

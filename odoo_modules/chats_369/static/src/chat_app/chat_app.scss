@@ -90,6 +90,29 @@ $o369-green-deep: #0E8F53;
     .o369-time { font-size: 11px; color: $o369-grey; flex: 0 0 auto; }
     .o369-rowbot { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 2px; }
     .o369-prev { font-size: 12.5px; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    // The "Archived" entry pinned above the chat list.
+    .o369-archrow {
+        display: flex; align-items: center; gap: 14px; padding: 13px 16px; cursor: pointer;
+        border-bottom: 1px solid $o369-line;
+        &:hover { background: $o369-wall; }
+        .fa { font-size: 16px; color: $o369-grey; width: 18px; }
+        .o369-archtxt { flex: 1; font-size: 14.5px; font-weight: 600; color: var(--o369-text); }
+        .o369-archcount { font-size: 12.5px; font-weight: 600; color: $o369-grey; }
+        .o369-archunread { font-size: 12.5px; font-weight: 800; color: $o369-brand; }
+    }
+    .o369-archback { margin-right: 6px; }
+    // At the bottom the divider belongs above the row, not below it.
+    .o369-archrow-bottom { border-bottom: 0; border-top: 1px solid $o369-line; }
+    // Archive settings rows.
+    .o369-archopt {
+        display: flex; align-items: flex-start; gap: 14px; padding: 10px 2px; cursor: pointer;
+        .o369-archoptmain { flex: 1; display: block; }
+        .o369-archopttxt { display: block; font-size: 14px; font-weight: 600; color: var(--o369-text); }
+        .o369-archoptsub { display: block; font-size: 11.5px; color: $o369-grey; margin-top: 2px; line-height: 1.45; }
+        input { margin-top: 3px; width: 16px; height: 16px; cursor: pointer; }
+    }
+    // 📷/🎤 marker in front of a media preview, matching the app's previewIcon.
+    .o369-previcon { margin-right: 4px; opacity: .75; }
     .o369-unread {
         background: $o369-accent; color: #fff; border-radius: 11px; min-width: 20px; height: 20px; padding: 0 6px;
         display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex: 0 0 auto;
@@ -455,6 +478,27 @@ $o369-green-deep: #0E8F53;
         display: block; width: 100%; border: none; background: transparent; color: $o369-grey; padding: 6px; cursor: pointer; margin-top: 2px;
         &:hover { color: $o369-accent-deep; }
     }
+    .o369-modalhint { font-size: 12.5px; color: $o369-grey; margin: -6px 0 12px; line-height: 1.45; }
+    /* Add-favourites picker. */
+    .o369-favpicklist { max-height: 320px; overflow-y: auto; margin-bottom: 10px; }
+    .o369-favpickrow {
+        display: flex; align-items: center; gap: 10px; padding: 7px 4px;
+        border-radius: 8px; cursor: pointer;
+        &:hover { background: $o369-wall; }
+        .fa { font-size: 18px; color: $o369-grey; }
+        .o369-favpickon { color: $o369-brand; }
+        // Fixed width even when empty, so ticking a row does not shift it.
+        .o369-favdrag { width: 14px; font-size: 14px; cursor: grab; }
+        &[draggable="true"]:active { cursor: grabbing; }
+    }
+    .o369-favpickdiv {
+        font-size: 11px; font-weight: 700; color: $o369-grey; letter-spacing: .04em;
+        text-transform: uppercase; padding: 12px 4px 4px;
+    }
+    .o369-favpicksave {
+        text-align: center; background: $o369-brand; color: #fff; border-color: $o369-brand; font-weight: 700;
+        &:hover { background: $o369-brand-deep; border-color: $o369-brand-deep; }
+    }
     /* Styled confirm dialog (replaces window.confirm) */
     .o369-confirmcard { width: 344px; }
     .o369-confirmbody { color: #475569; font-size: 14px; line-height: 1.5; margin-bottom: 18px; }
@@ -518,6 +562,9 @@ $o369-green-deep: #0E8F53;
         &:hover { background: $o369-wall; }
         &.o369-danger { color: $o369-accent-deep; .fa { color: $o369-accent-deep; } }
     }
+    // Secondary line inside a menu row / drawer action — currently the mute
+    // deadline, so "Unmute" can say what it is undoing.
+    .o369-menusub { display: block; font-size: 11px; color: $o369-grey; margin-top: 1px; }
 
     .o369-reacts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
     .o369-react {
@@ -650,6 +697,8 @@ $o369-green-deep: #0E8F53;
         border-radius: 10px; color: $o369-brand; text-decoration: none; font-size: 13px; margin-bottom: 3px;
         i { font-size: 18px; }
         &:hover { background: rgba(0,0,0,.08); }
+        // file_size was serialised and rendered by the app but never by the web.
+        .o369-docsize { color: #6b7280; font-size: 11.5px; white-space: nowrap; }
     }
     .o369-memrow:hover { background: #f2f6fb; border-radius: 8px; }
 
@@ -1336,6 +1385,18 @@ $o369-green-deep: #0E8F53;
     .o369-schedbtn { color: #fff; }
     .o369-callsect { padding: 14px 16px 6px; font-size: 12px; font-weight: 700; color: $o369-grey;
         text-transform: uppercase; letter-spacing: .04em; }
+    // Schedule / Favourites row, above the history — mirrors the app's chips.
+    .o369-callactions {
+        display: flex; gap: 8px; padding: 4px 16px 10px;
+        .o369-callchip {
+            flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+            border: 0; border-radius: 999px; padding: 8px 12px; cursor: pointer;
+            background: $o369-wall; color: $o369-brand; font-size: 12.5px; font-weight: 700;
+            &:hover { filter: brightness(.97); }
+        }
+        .o369-callchip-on { background: $o369-brand; color: #fff; }
+        .o369-callchipn { font-size: 11px; font-weight: 800; opacity: .75; }
+    }
     .o369-callmissed { color: #e5352b; }
     .o369-callmeta2 { display: inline-flex; align-items: center; gap: 5px;
         .fa { font-size: 12px; }

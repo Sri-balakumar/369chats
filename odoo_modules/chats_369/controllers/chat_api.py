@@ -371,6 +371,15 @@ class Chat369API(http.Controller):
             'favourite': bool(member.favourite) if member else False,
             'archived': bool(member.archived) if member else False,
             'muted': bool(member and member.muted and (not member.muted_until or member.muted_until > fields.Datetime.now())),
+            # The DEADLINE, not just the flag. Both clients ask for how long to
+            # mute (8 hours / 1 day / 1 week / until turned off) and then had no
+            # way to tell the user what they had chosen, because only the boolean
+            # was ever sent. False here means "until turned off" — a muted chat
+            # with no deadline — which is a different thing from not muted.
+            'muted_until': (
+                fields.Datetime.to_string(member.muted_until)
+                if (member and member.muted and member.muted_until) else False
+            ),
             'manual_unread': bool(member.manual_unread) if member else False,
             'other_user_id': other_user_id,
             'other_mobile': other_mobile,
@@ -386,8 +395,30 @@ class Chat369API(http.Controller):
             'kind': 'system',
         })
 
+    def _unarchive_on_new_message(self, conv, author):
+        """Pull a chat back out of the archive for anyone who has NOT turned on
+        "Keep chats archived".
+
+        WhatsApp's default is to keep them archived, so this only affects users
+        who deliberately switched it off. Runs for every recipient, never the
+        author — archiving is per-member, and sending into a chat you archived
+        yourself should not resurrect it for you.
+        """
+        try:
+            stuck = conv.member_ids.filtered(
+                lambda m: m.archived and not m.left_at and m.user_id.id != author.id
+                and not m.user_id.chat_keep_archived)
+            if stuck:
+                stuck.sudo().write({'archived': False})
+        except Exception:
+            pass  # never let a preference break message delivery
+
     def _push_chat(self, conv, msg, author):
         """Best-effort Expo push to the other members' devices (never raises)."""
+        # Before any of the push short-circuits below: this is about where the
+        # chat LIVES, not about notifications, so a user with push disabled must
+        # still get the chat back in their list.
+        self._unarchive_on_new_message(conv, author)
         try:
             try:
                 config = request.env['whatsapp.config'].sudo().get_config()
@@ -694,10 +725,30 @@ class Chat369API(http.Controller):
             rows = [r for r in rows if r['id'] in list_conv_ids]
 
         rows.sort(key=lambda r: (1 if r.get('pinned') else 0, r['last_at'] or ''), reverse=True)
+
+        # Summary of what is ARCHIVED, sent with every filter. WhatsApp keeps an
+        # "Archived" row pinned at the top of the chat list showing how much is
+        # in there, and the list itself excludes archived chats — so without this
+        # the client would have to fetch the archived filter as well just to draw
+        # one row. Counted from members directly rather than re-serialising.
+        arch = request.env['chat.member'].sudo().search([
+            ('user_id', '=', me.id), ('left_at', '=', False),
+            ('hidden', '=', False), ('archived', '=', True),
+        ])
+        arch_convs = arch.filtered(
+            lambda m: m.conversation_id.active
+            and (m.conversation_id.is_group or m.conversation_id.last_message_id))
         return {
             'status': True,
             'conversations': rows,
             'unread_total': sum(r['unread_count'] for r in rows),
+            'archived_count': len(arch_convs),
+            # Unread INSIDE the archive. WhatsApp shows this only when the chat
+            # is not muted, which is the same rule the row badge uses.
+            'archived_unread': sum(
+                m._unread_count() for m in arch_convs
+                if not (m.muted and (not m.muted_until or m.muted_until > fields.Datetime.now()))
+            ),
         }
 
     @http.route('/chat/unread_total', type='json', auth='user', methods=['POST'], csrf=False)
@@ -1221,6 +1272,8 @@ class Chat369API(http.Controller):
             'read_receipts': me.chat_read_receipts,
             'notif_messages': me.chat_notif_messages, 'notif_groups': me.chat_notif_groups,
             'notif_sound': me.chat_notif_sound, 'notif_preview': me.chat_notif_preview,
+            'keep_archived': me.chat_keep_archived,
+            'archive_at_bottom': me.chat_archive_at_bottom,
         }}
 
     @http.route('/chat/profile', type='json', auth='user', methods=['POST'], csrf=False)
@@ -1249,7 +1302,9 @@ class Chat369API(http.Controller):
         me = request.env.user
         cols = {'read_receipts': 'chat_read_receipts', 'notif_messages': 'chat_notif_messages',
                 'notif_groups': 'chat_notif_groups', 'notif_sound': 'chat_notif_sound',
-                'notif_preview': 'chat_notif_preview'}
+                'notif_preview': 'chat_notif_preview',
+                'keep_archived': 'chat_keep_archived',
+                'archive_at_bottom': 'chat_archive_at_bottom'}
         vals = {col: bool(params[k]) for k, col in cols.items() if k in params}
         if vals:
             me.sudo().write(vals)
@@ -1842,7 +1897,14 @@ class Chat369API(http.Controller):
                 'duration': c.duration, 'created': self._dt(c.started_at),
             })
         favorites = []
-        for m in request.env['chat.member'].sudo().search([('user_id', '=', me.id), ('favourite', '=', True)]):
+        # Hand-sorted first (favourite_seq), then by id so anything favourited
+        # before ordering existed — every row is 0 — keeps a stable position
+        # instead of reshuffling between fetches.
+        fav_members = request.env['chat.member'].sudo().search(
+            [('user_id', '=', me.id), ('favourite', '=', True)],
+            order='favourite_seq asc, id asc',
+        )
+        for m in fav_members:
             conv = m.conversation_id
             if not conv or conv.is_group or conv.is_self:
                 continue
@@ -2105,6 +2167,30 @@ class Chat369API(http.Controller):
         member.sudo().write({'favourite': bool(params.get('favourite'))})
         return {'status': True}
 
+    @http.route('/chat/favourites_order', type='json', auth='user', methods=['POST'], csrf=False)
+    def chat_favourites_order(self, **params):
+        """Persist the hand-sorted order of the favourites shortlist.
+
+        Takes conversation_ids in the order the user arranged them. Only rows the
+        caller is actually a member of are touched, so a bad id is ignored rather
+        than reordering someone else's list.
+        """
+        ids = [int(x) for x in (params.get('conversation_ids') or []) if str(x).isdigit()]
+        if not ids:
+            return {'status': True}
+        me = request.env.user
+        members = request.env['chat.member'].sudo().search([
+            ('user_id', '=', me.id), ('conversation_id', 'in', ids),
+        ])
+        by_conv = {m.conversation_id.id: m for m in members}
+        # 1-based, so an untouched row (0) always sorts ahead of nothing and the
+        # ordering stays meaningful if a new favourite is added later.
+        for seq, conv_id in enumerate(ids, start=1):
+            m = by_conv.get(conv_id)
+            if m:
+                m.write({'favourite_seq': seq})
+        return {'status': True}
+
     @http.route('/chat/mute', type='json', auth='user', methods=['POST'], csrf=False)
     def chat_mute(self, **params):
         conv, member = self._member_conv(params.get('conversation_id'))
@@ -2247,6 +2333,11 @@ class Chat369API(http.Controller):
             'conversation_id': conv.id, 'is_group': conv.is_group, 'is_self': conv.is_self,
             'title': self._conv_title(conv, me.id),
             'favourite': bool(member.favourite), 'muted': bool(member.muted),
+            # See _serialize_conversation: False means "muted until turned off".
+            'muted_until': (
+                fields.Datetime.to_string(member.muted_until)
+                if (member.muted and member.muted_until) else False
+            ),
             'disappear_seconds': conv.disappear_seconds or 0,
             'media': {
                 'photos': Msg.search_count(base + [('kind', '=', 'image')]),

@@ -34,6 +34,16 @@ class ResUsers(models.Model):
     chat_notif_groups = fields.Boolean(string='Notify Group Messages', default=True)
     chat_notif_sound = fields.Boolean(string='Notification Sound', default=True)
     chat_notif_preview = fields.Boolean(string='Notification Preview', default=True)
+    # WhatsApp's "Keep chats archived". ON (the default) means an archived chat
+    # STAYS archived when a new message arrives. Turning it off restores the
+    # older behaviour where any new message pulls the chat back into the main
+    # list — see _chat_unarchive_for, called when a message is delivered.
+    chat_keep_archived = fields.Boolean(string='Keep Chats Archived', default=True)
+    # Where the "Archived" entry sits in the chat list. Top by default, which is
+    # where it is easiest to find; bottom keeps it out of the way once the
+    # archive is something you rarely open. Stored per user rather than per
+    # device so the app and the web agree.
+    chat_archive_at_bottom = fields.Boolean(string='Archived Row At Bottom', default=False)
     # People I have blocked (they can't message me and I can't message them).
     chat_blocked_user_ids = fields.Many2many(
         'res.users', 'chat_block_rel', 'blocker_id', 'blocked_id',
