@@ -2,6 +2,11 @@
 
 Paste this whole file into a new session as context.
 
+> **Also read `HANDOFF-APP-SERVERS.md`** if the work touches login, provisioning or which server the
+> app connects to. A subsystem was added on 2026-08-04 — an admin sets one row in Odoo and every
+> phone follows it, so users only type their mobile number. It has its own gotchas (Expo env
+> inlining, Odoo's magic `active` field, multi-DB 404s) and **none of it is device-tested yet**.
+
 ## What this is
 
 `c:\Projects\369Chats` is an Expo 54 / RN 0.81 chat app talking to the Odoo 19 module
