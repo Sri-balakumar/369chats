@@ -12,10 +12,16 @@ const K_SESSION = 'odoo_session';
 const K_SETUP_UID = 'odoo_setup_uid';
 const K_SETUP_LOGIN = 'odoo_setup_login';
 const K_SETUP_NAME = 'odoo_setup_name';
+// The last mobile number that signed in. Used to pre-fill the login after a
+// server change, so moving servers costs one password entry rather than a full
+// re-onboarding.
+const K_LAST_MOBILE = 'app_last_mobile';
 
 // --- Connection (URL + DB + the device-setup account) ----------------------
 
-export async function saveConnection({ serverUrl, db, setupUid, setupLogin, setupName }) {
+export async function saveConnection({
+  serverUrl, db, setupUid, setupLogin, setupName,
+}) {
   try {
     const pairs = [
       [K_URL, serverUrl || ''],
@@ -39,8 +45,30 @@ export async function getConnection() {
       setupLogin: sLogin || '', setupName: sName || '',
     };
   } catch (_) {
-    return { serverUrl: '', db: '', setupUid: null, setupLogin: '', setupName: '' };
+    return {
+      serverUrl: '', db: '', setupUid: null, setupLogin: '', setupName: '',
+    };
   }
+}
+
+// Clears the server/database AND the setup account, so the next launch starts
+// from scratch. Used by "Change server".
+export async function clearConnection() {
+  try {
+    await AsyncStorage.multiRemove([
+      K_URL, K_DB, K_SETUP_UID, K_SETUP_LOGIN, K_SETUP_NAME,
+    ]);
+  } catch (_) {}
+}
+
+// --- Last mobile number (login pre-fill) -----------------------------------
+
+export async function saveLastMobile(mobile) {
+  try { await AsyncStorage.setItem(K_LAST_MOBILE, String(mobile || '')); } catch (_) {}
+}
+
+export async function getLastMobile() {
+  try { return (await AsyncStorage.getItem(K_LAST_MOBILE)) || ''; } catch (_) { return ''; }
 }
 
 // --- Session (keep-logged-in) ---------------------------------------------

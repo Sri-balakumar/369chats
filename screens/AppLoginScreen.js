@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path, Circle, Ellipse } from 'react-native-svg';
 import LoginArt from '../components/LoginArt';
 import { COLORS, themed } from '../theme';
-import { saveSession } from '../api/session';
+import { saveSession, saveLastMobile, getLastMobile } from '../api/session';
 import { loginCheck, appLogin, setAppPassword, requestOtp, verifyOtp, getMobileConfig } from '../services/appAuth';
 import { createLogger } from '../api/logger';
 
@@ -37,7 +37,7 @@ const WAVE_ACCENT =
   `C ${SW * 0.76},38 ${SW * 0.88},66 ${SW},50 ` +
   `L ${SW},${WAVE_H} Z`;
 
-export default function AppLoginScreen({ onLogin, onNeedSetup }) {
+export default function AppLoginScreen({ onLogin, onNeedSetup, serverMoved, noServerReason }) {
   const insets = useSafeAreaInsets();            // clear the phone's nav/gesture bar
   const [step, setStep] = useState('mobile');   // mobile | password | setpw | otp
   const [mobile, setMobile] = useState('');
@@ -70,6 +70,17 @@ export default function AppLoginScreen({ onLogin, onNeedSetup }) {
       setMobileLen(c.length || 10);
       log.info('mobile config', { dial: c.dial, length: c.length });
     });
+    return () => { alive = false; };
+  }, []);
+
+  // Pre-fill the last number that signed in on this device. It matters most
+  // after the admin moves the app to another server: the session is dropped, and
+  // without this the user would face an empty form with no idea why.
+  useEffect(() => {
+    let alive = true;
+    getLastMobile().then((m) => {
+      if (alive && m) setMobile(m);
+    }).catch(() => {});
     return () => { alive = false; };
   }, []);
 
@@ -119,6 +130,18 @@ export default function AppLoginScreen({ onLogin, onNeedSetup }) {
   async function continueMobile() {
     const m = mobile.replace(/[^\d]/g, '');
     if (m.length < mobileLen) return fail(`Enter your ${mobileLen}-digit mobile number.`);
+
+    // With no server configured there is nothing to check the number AGAINST.
+    // Asking anyway produced "This number is not registered", which blames the
+    // number for the admin not having set a server up — and sends the user to
+    // ask for the wrong fix. Stop here and say what is actually wrong.
+    if (noServerReason) {
+      log.info('login blocked — no server', { reason: noServerReason });
+      return fail(noServerReason === 'unconfigured'
+        ? 'This app has no server set up yet. Contact your admin.'
+        : "Can't reach the server. Check your connection, or contact your admin.");
+    }
+
     log.info('continue mobile', m);
     setBusy(true); setError('');
     try {
@@ -148,6 +171,9 @@ export default function AppLoginScreen({ onLogin, onNeedSetup }) {
       // the default 1111 first, then changing it, is the intended flow.
       log.info('login success', res.user?.username, { mustChange: !!res.mustChange });
       await saveSession(res.user);
+      // Remembered so the field is already filled if the admin later moves this
+      // app to another server, which drops the session.
+      await saveLastMobile(mobile.replace(/[^\d]/g, ''));
       onLogin(res.user);
     } catch (e) { fail('Login failed. Try again.'); }
   }
@@ -162,6 +188,7 @@ export default function AppLoginScreen({ onLogin, onNeedSetup }) {
       if (!res.ok) return fail(res.error || 'Could not set the password.');
       log.info('password set → entering app');
       await saveSession(pendingUser);
+      await saveLastMobile(mobile.replace(/[^\d]/g, ''));
       onLogin(pendingUser);
     } catch (e) { fail('Could not set the password. Try again.'); }
   }
@@ -170,6 +197,14 @@ export default function AppLoginScreen({ onLogin, onNeedSetup }) {
   async function startOtp() {
     const m = mobile.replace(/[^\d]/g, '');
     if (m.length < mobileLen) return fail('Enter your mobile number first.');
+    // Same reason as continueMobile: with no server there is nobody to send a
+    // code, and the generic "always proceeds" response would leave the user
+    // waiting for a message that can never arrive.
+    if (noServerReason) {
+      return fail(noServerReason === 'unconfigured'
+        ? 'This app has no server set up yet. Contact your admin.'
+        : "Can't reach the server. Check your connection, or contact your admin.");
+    }
     log.info('request OTP', m);
     setBusy(true); setError('');
     try {
@@ -191,6 +226,9 @@ export default function AppLoginScreen({ onLogin, onNeedSetup }) {
       if (!res.ok) return fail(res.error || 'Incorrect or expired code.');
       log.info('OTP verified → entering app');
       await saveSession(res.user);
+      // Remembered so the field is already filled if the admin later moves this
+      // app to another server, which drops the session.
+      await saveLastMobile(mobile.replace(/[^\d]/g, ''));
       onLogin(res.user);
     } catch (e) { fail('Could not verify. Try again.'); }
   }
@@ -256,6 +294,34 @@ export default function AppLoginScreen({ onLogin, onNeedSetup }) {
                 <TouchableOpacity activeOpacity={1} onPress={onLogoTap} style={s.logoWrap}>
                   <Image source={require('../assets/logo369.png')} style={s.logo} resizeMode="contain" />
                 </TouchableOpacity>
+
+                {/* The admin repointed this app at a different server, so the old
+                    session was dropped. Being signed out with no explanation
+                    reads as a bug, so it is stated plainly. */}
+                {!!serverMoved && (
+                  <View style={s.moved}>
+                    <Text style={s.movedTxt}>
+                      Your workspace has moved to a new server. Please sign in again.
+                    </Text>
+                  </View>
+                )}
+
+                {/* No server to sign in against. Shown instead of letting the
+                    attempt fail with a network error, and worded as the admin's
+                    job because the user cannot fix an address they never see.
+
+                    The two reasons say DIFFERENT things on purpose: telling an
+                    admin the server is unreachable when it answered perfectly
+                    well sends them hunting a network fault that isn't there. */}
+                {!!noServerReason && (
+                  <View style={s.noServer}>
+                    <Text style={s.noServerTxt}>
+                      {noServerReason === 'unconfigured'
+                        ? 'This app has no server set up yet — contact your admin.'
+                        : "Can't reach the server — contact your admin."}
+                    </Text>
+                  </View>
+                )}
                 <View style={s.decorRow}>
                   <View style={s.decorLine} />
                   <Text style={s.decorTxt}>
@@ -434,6 +500,18 @@ const s = themed((C) => ({
   input: { flex: 1, fontSize: 15.5, color: C.ink, height: '100%' },
   dialPrefix: { fontSize: 15.5, fontWeight: '700', color: C.ink, marginRight: -4 },
   err: { color: C.red, fontSize: 13, marginBottom: 8 },
+  // Informational, not an error — the user did nothing wrong, so it is not red.
+  moved: {
+    backgroundColor: C.tintBg, borderRadius: 10,
+    paddingVertical: 10, paddingHorizontal: 14, marginBottom: 14,
+  },
+  movedTxt: { color: C.primary, fontSize: 13, fontWeight: '600', textAlign: 'center' },
+  // Same shape as `moved`, red — this one IS a fault, not just news.
+  noServer: {
+    backgroundColor: C.redBg, borderRadius: 10,
+    paddingVertical: 10, paddingHorizontal: 14, marginBottom: 14,
+  },
+  noServerTxt: { color: C.red, fontSize: 13, fontWeight: '700', textAlign: 'center' },
   pwWarn: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: COLORS.redBg, borderWidth: 1, borderColor: C.red, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12, marginBottom: 14 },
   pwWarnTxt: { flex: 1, color: C.red, fontSize: 12.5, lineHeight: 18, fontWeight: '600' },
   primaryBtn: { backgroundColor: WATER, borderRadius: 12, height: 54, alignItems: 'center', justifyContent: 'center', marginTop: 4 },

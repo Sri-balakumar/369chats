@@ -1,6 +1,8 @@
 {
   "//identity": "This app is 369Chats. Do NOT 'correct' the package to com.alphalize.369chats — an Android package segment is a Java identifier and may not start with a digit, so the package is chats369 while the slug is 369chats. Changing either one requires a matching Android client in google-services.json and a fresh dev-client build (the deep link is exp+<slug>).",
   "//eas": "extra.eas.projectId was minted by `eas init` on an account we control, replacing one that belonged to another owner under the old slug. There is intentionally no `owner` key — EAS infers it from the logged-in account, and hardcoding it is what blocked builds before. The FCM V1 service-account key is stored PER EAS PROJECT, so if that id ever changes again, push silently stops until `eas credentials` re-uploads it (see FIREBASE_PUSH_SETUP.md).",
+  "//appServer": "extra.appServer.anchorUrl is the ONE address a build ships knowing. The app asks it (/app/resolve) which server and database to use, so an admin can move everyone by editing the App Servers row in Odoo — no rebuild, no per-device setup. Leave anchorUrl EMPTY and the app behaves exactly as it did before: manual 7-tap setup only. anchorDb is only needed when the anchor host serves several databases with no dbfilter, where a public route cannot tell which one it is for; it names the ANCHOR's database, never the target's, so the target stays changeable. appKey must match the App Servers row and is a contract with shipped binaries — renaming it breaks every installed copy until rebuilt.",
+
   "//comments": "These notes live OUTSIDE the `expo` object on purpose. Expo validates the expo object against a strict schema and `expo-doctor` fails on any unknown key inside it, so comments in there turn a useful gate into permanent noise. Sibling keys are ignored by the config loader.",
   "expo": {
     "name": "369Chats",
@@ -91,6 +93,11 @@
     "extra": {
       "eas": {
         "projectId": "34c5b7b9-7153-44dd-907b-efe122a77fcd"
+      },
+      "appServer": {
+        "anchorUrl": "",
+        "anchorDb": "",
+        "appKey": "369chats"
       }
     },
     "owner": "tawexi"

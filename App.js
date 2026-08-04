@@ -54,6 +54,7 @@ try {
   EventType = nf.EventType;
 } catch (_) { /* notifee native module absent (pre-rebuild) — alarm inert */ }
 import * as session from './api/session';
+import { resolveServer, hasAnchor, UNCONFIGURED } from './services/appServer';
 import { createLogger, loadLoggingPref } from './api/logger';
 import { registerForPushAsync, unregisterPush } from './services/push';
 import realtime from './services/chatRealtime';
@@ -63,14 +64,28 @@ import { loadDrafts } from './services/drafts';
 const log = createLogger('App');
 
 // Mobile-number sign-in (AppLoginScreen + services/appAuth, the /kpi_app/* routes).
-// HIDDEN, NOT DELETED — both files are intact and this flag is the only thing
-// standing between them and the login flow. Flip to true to bring it back.
 //
-// While it is off, the Odoo login in ConnectScreen doubles as the app login: it
-// provisions the device AND starts the session from the account that just
-// authenticated. Turning it back on makes ConnectScreen pure device-setup again
-// and the number screen becomes the way in, exactly as it was.
-const NUMBER_LOGIN_ENABLED = false;
+// ON. A provisioned device goes straight to "enter your mobile number"; the Odoo
+// login in ConnectScreen is pure DEVICE SETUP again and no longer doubles as the
+// app login. It stays reachable behind the 7-tap gesture so nobody is locked out.
+//
+// Turning this on is what makes the App Servers work visible: services/appServer
+// asks Odoo where to connect and marks the device provisioned, but `provisioned`
+// only leads anywhere through the branch below. With this false, every device
+// fell through to the Odoo login no matter how well provisioning worked.
+const NUMBER_LOGIN_ENABLED = true;
+
+// The hidden device-setup door: 7 taps on the logo → ConnectScreen (type a server
+// URL, pick a database, sign in as an Odoo admin).
+//
+// LOCKED. Every device now takes its server from the App Servers row in Odoo, so
+// this only offers a way to point a phone somewhere the admin did not choose —
+// and the next check overwrites it anyway, which is worse than not offering it.
+//
+// HIDDEN, NOT DELETED. ConnectScreen and its whole flow are intact and this flag
+// is the only thing in the way. Flip to true to bring the door back — useful if
+// the anchor is ever wrong and a device needs pointing by hand to recover.
+const DEVICE_SETUP_ENABLED = false;
 
 // Definitive runtime check: 'storeClient' = Expo Go (local notifications DON'T
 // display there); 'standalone'/'bare' = a real dev/standalone build (they do).
@@ -159,6 +174,16 @@ function AppInner() {
   const [chatUnread, setChatUnread] = useState(0);
   const [provisioned, setProvisioned] = useState(false); // device set up (server URL saved)
   const [forceSetup, setForceSetup] = useState(false);   // show Odoo device-setup over the app login
+  // The admin repointed this app at a different server, so the old session was
+  // dropped. Drives the "workspace has moved" note on the login screen — without
+  // it, being signed out for no visible reason looks like a bug.
+  const [serverMoved, setServerMoved] = useState(false);
+  // WHY there is no server, so the message can say the true thing:
+  //   'unconfigured' → the anchor answered; no Client URL is set for this app
+  //   'unreachable'  → nothing answered at all
+  // Telling an admin "can't reach the server" when the server answered fine
+  // sends them hunting a network fault that does not exist.
+  const [noServerReason, setNoServerReason] = useState('');
 
   const pushTokenRef = useRef(null);       // this device's Expo token (for logout unregister)
   const pendingTapRef = useRef(null);      // a tap that arrived before login/restore
@@ -275,16 +300,182 @@ function AppInner() {
     }
   };
 
-  // Restore a remembered session + device-setup state on relaunch.
+  // Restore a remembered session + device-setup state on relaunch, and ask the
+  // anchor where this app's server is (see services/appServer).
+  //
+  // COLD START ONLY — deliberately not on a timer or on foreground-resume. A
+  // server change signs the user out, and doing that to someone mid-message
+  // would lose what they were typing.
   useEffect(() => {
     (async () => {
-      const conn = await session.getConnection();
-      setProvisioned(!!(conn && conn.serverUrl));   // device already set up?
-      const saved = await session.getSession();
-      if (saved) setUser(saved);
-      setRestoring(false);
+      try {
+        const conn = await session.getConnection();
+        const saved = await session.getSession();
+        let serverUrl = conn?.serverUrl || '';
+        let movedFrom = '';
+        let reason = '';
+        // Set whenever the stored session is cleared. `saved` was read at the
+        // top of this effect and still holds the old object afterwards, so
+        // wiping storage is NOT enough — without this the restore below hands
+        // that stale object back and the app opens as if nothing happened.
+        let dropSession = false;
+
+        if (hasAnchor()) {
+          // EVERY device follows the Odoo row. There used to be a per-device
+          // "manual" pin so a phone aimed at a local IP was left alone; it meant
+          // an admin could change the server and some devices would silently
+          // never hear about it, which is the opposite of central configuration.
+          // The 7-tap setup is still a working override — it just stops being
+          // permanent, since the next check supersedes it.
+          {
+            const target = await resolveServer();
+
+            // The anchor answered and said this app has no server — an admin
+            // cleared the Client URL or switched the row off. That is an
+            // instruction, so the stored server goes and the app stops. An
+            // UNREACHABLE anchor (null) deliberately does the opposite: it keeps
+            // the last known server, because a network blip must not strand a
+            // device that was working.
+            if (target === UNCONFIGURED) {
+              await session.clearConnection();
+              if (saved) { await session.clearSession(); dropSession = true; }
+              serverUrl = '';
+              reason = 'unconfigured';
+            } else if (target === null && !serverUrl) {
+              // Nothing answered AND we have nothing stored, so there is no
+              // server to work against at all.
+              reason = 'unreachable';
+            } else if (target && target.url) {
+              const changed = target.url !== serverUrl || (target.db || '') !== (conn?.db || '');
+              if (changed) {
+                // No setupUid on this path: nobody signed in. The server skips
+                // its device lock when that is absent, which is what a shared
+                // company phone wants.
+                await session.saveConnection({
+                  serverUrl: target.url, db: target.db,
+                });
+                if (serverUrl && saved) {
+                  // A session belongs to ONE host — the old cookie is worthless
+                  // against the new server, so sign out cleanly and say why
+                  // rather than letting every later request fail.
+                  movedFrom = serverUrl;
+                  await session.clearSession();
+                }
+                serverUrl = target.url;
+              }
+            }
+          }
+        }
+
+        // Everything the boot decision turned on, in one line. Chasing this
+        // without it meant guessing at the device's stored state from the
+        // outside, repeatedly and wrongly — the debug-log screen already exists
+        // and should be able to answer "why did it do that?".
+        log.info('boot provisioning', {
+          storedUrl: conn?.serverUrl || '(none)',
+          anchorConfigured: hasAnchor(),
+          askedAnchor: hasAnchor(),
+          outcome: reason || (movedFrom ? 'moved' : 'kept'),
+          finalUrl: serverUrl || '(none)',
+          hadSession: !!saved,
+          sessionDropped: dropSession || !!movedFrom,
+        });
+
+        setProvisioned(!!serverUrl);
+        setServerMoved(!!movedFrom);
+        // No anchor configured at all is not a fault worth reporting — that is
+        // simply a build that does not use this feature.
+        setNoServerReason(serverUrl ? '' : (reason || (hasAnchor() ? 'unreachable' : '')));
+        // Restore the remembered session ONLY if it was not just thrown away.
+        // Clearing it in storage is not enough — `saved` still holds the object
+        // read before the wipe, and handing that back put the user straight into
+        // chats on a device that no longer has a server.
+        if (saved && !movedFrom && !dropSession) setUser(saved);
+      } catch (e) {
+        // Boot must never hang on this. Anything unexpected leaves the app
+        // exactly as it behaved before the anchor existed.
+        log.warn('boot provisioning failed', e?.message);
+      } finally {
+        setRestoring(false);
+      }
     })();
   }, []);
+
+  // Keep following the Odoo row WHILE the app is open, not only at launch.
+  //
+  // Without this an admin could repoint or switch off a server and a signed-in
+  // user would carry on against the old one until they fully restarted the app —
+  // which on a phone can be days.
+  //
+  // Runs on return-to-foreground and on a slow interval. Drafts are persisted
+  // per chat (services/drafts), so being signed out mid-message does not lose
+  // what was typed — that is what makes interrupting acceptable at all.
+  useEffect(() => {
+    if (!hasAnchor()) return undefined;
+
+    let alive = true;
+
+    const check = async () => {
+      if (!alive) return;
+      try {
+        const conn = await session.getConnection();
+        const target = await resolveServer();
+
+        // Unreachable is NOT a reason to sign anyone out or to change anything.
+        // This ticks constantly; treating a dropped packet as "log out" would
+        // make the app unusable on a weak connection. Only a deliberate change
+        // counts.
+        if (target === null) return;
+
+        if (target === UNCONFIGURED) {
+          if (!conn?.serverUrl && !user) return;   // already in that state
+          log.info('server switched off by admin');
+          await session.clearConnection();
+          await session.clearSession();
+          if (!alive) return;
+          setProvisioned(false);
+          setNoServerReason('unconfigured');
+          setUser(null);
+          return;
+        }
+
+        const changed = target.url !== (conn?.serverUrl || '')
+          || (target.db || '') !== (conn?.db || '');
+        if (!changed) return;
+
+        await session.saveConnection({ serverUrl: target.url, db: target.db });
+        if (!alive) return;
+        setProvisioned(true);
+        setNoServerReason('');
+
+        if (user) {
+          // A session belongs to one host, so it cannot follow the app to a new
+          // one. Sign out and say why.
+          log.info('server moved while running', { from: conn?.serverUrl, to: target.url });
+          await session.clearSession();
+          if (!alive) return;
+          setServerMoved(true);
+          setUser(null);
+        } else {
+          // Signed out and waiting: the admin has just set a server up, so the
+          // red banner clears and the number field starts working. Without this
+          // the user would sit on a dead login screen until they restarted the
+          // app, with no way to know it had been fixed.
+          log.info('server became available while on the login screen', target.url);
+        }
+      } catch (e) {
+        log.info('server watch failed', e?.message);
+      }
+    };
+
+    // Faster while signed out: someone is sitting on the login screen waiting
+    // for an admin to fix it, and a minute of staring at a red line feels
+    // broken. Once signed in there is nothing to wait for, so it backs off.
+    const everyMs = user ? 60000 : 8000;
+    const sub = AppState.addEventListener('change', (s) => { if (s === 'active') check(); });
+    const timer = setInterval(check, everyMs);
+    return () => { alive = false; sub.remove(); clearInterval(timer); };
+  }, [user]);
 
   // Android hardware back: go one screen back instead of exiting the app.
   // Returning true from the handler tells Android we handled the event.
@@ -567,6 +758,9 @@ function AppInner() {
       return (
         <ChatListScreen
           onBack={home}
+          // Puts the red "contact your admin" line under the 369Chats title when
+          // the server could not be reached at launch.
+          serverUnreachable={noServerReason}
           onNewChat={(opts) => setAppScreen(opts?.group ? 'newgroup' : 'newchat')}
           onOpenChat={(conv) => { setActiveChat(conv); setFocusId(null); setAppScreen('chat'); }}
           onOpenSearch={() => { setActiveChat(null); setAppScreen('chatsearch'); }}
@@ -632,32 +826,50 @@ function AppInner() {
     );
   }
 
-  // Not logged in. With the number login ON, a provisioned device goes straight
-  // to the mobile# + password page, and the Odoo login stays reachable behind
-  // "Admin / device setup" so no one is locked out. With it OFF this branch is
-  // skipped entirely and everyone lands on the welcome + Odoo sheet below.
-  if (NUMBER_LOGIN_ENABLED && provisioned && !forceSetup) {
+  // Not logged in → the mobile-number screen. ALWAYS, whether or not a server
+  // was found.
+  //
+  // It used to require `provisioned`, so a device that could not reach the
+  // server dropped through to the Odoo login below and asked an ordinary user
+  // for a server URL, a database and an admin password — the exact thing this
+  // feature exists to remove, surfacing at the worst possible moment. Now the
+  // screen says the server is unreachable and names it as the admin's problem,
+  // which is what it is: the user cannot fix an address they never see.
+  //
+  // ConnectScreen still exists and is still reachable, but only through the
+  // 7-tap gesture (forceSetup) — it is the escape hatch for local-IP testing and
+  // the only path that records setupUid.
+  if (NUMBER_LOGIN_ENABLED && !forceSetup) {
     return (
       <AppLoginScreen
-        onLogin={(u) => { setForceSetup(false); setUser(u); }}
-        onNeedSetup={() => { setForceSetup(true); setScreen('connect'); }}
+        onLogin={(u) => { setForceSetup(false); setServerMoved(false); setUser(u); }}
+        // The 7-tap door is locked (DEVICE_SETUP_ENABLED). Swallowing the tap
+        // keeps the user on this screen rather than opening a setup flow that
+        // the next server check would undo anyway.
+        onNeedSetup={DEVICE_SETUP_ENABLED
+          ? () => { setForceSetup(true); setScreen('connect'); }
+          : () => { log.info('device setup is locked — ignoring the 7-tap'); }}
+        // Signed out because the admin moved this app to another server. The
+        // number is pre-filled, so it costs one password entry rather than a
+        // full re-onboarding.
+        serverMoved={serverMoved}
+        // No server to talk to, so signing in cannot work. Say so up front
+        // rather than letting the attempt fail with a network error.
+        noServerReason={noServerReason}
       />
     );
   }
 
   // Welcome + the Connect (URL/DB/Odoo login) sheet. ConnectScreen always saves
   // the server/DB; whether that also signs you in depends on the flag.
-  const onConnected = async (profile) => {
+  // Reached only through the 7-tap gesture now. Pure DEVICE SETUP: it records
+  // the server and marks the device 'manual' (so the anchor never repoints it),
+  // and hands the user to the mobile-number screen. It no longer signs anyone
+  // in — the number is the way in.
+  const onConnected = async () => {
     setProvisioned(true);
     setForceSetup(false);
     setScreen('login');
-    // Number login off → the Odoo account that just authenticated IS the user.
-    // Persist it so a relaunch restores the session instead of asking again.
-    if (!NUMBER_LOGIN_ENABLED && profile) {
-      log.info('odoo login → session', { uid: profile.uid, login: profile.username });
-      try { await session.saveSession(profile); } catch (e) { log.warn('saveSession failed', e?.message); }
-      setUser(profile);
-    }
   };
 
   return (

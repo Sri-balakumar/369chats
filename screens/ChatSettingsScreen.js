@@ -22,6 +22,7 @@ import CameraCaptureModal from '../components/CameraCaptureModal';
 import * as chat from '../services/chat';
 import { requestOtp, verifyOtp } from '../services/appAuth';
 import { saveSession } from '../api/session';
+import * as session from '../api/session';
 import { createLogger, isLoggingEnabled } from '../api/logger';
 
 const log = createLogger('ChatSettings');
@@ -63,6 +64,7 @@ export default function ChatSettingsScreen({ user, onBack, onOpenGmeet, onOpenDe
   const [photoOpen, setPhotoOpen] = useState(false);   // avatar source picker
   const [cameraOpen, setCameraOpen] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
+  const [serverOpen, setServerOpen] = useState(false);
 
   // ── Change password (OTP), lifted from the old Profile tab ─────────────────
   // Only offered to app-login users, since it resets the password tied to a
@@ -350,6 +352,13 @@ export default function ChatSettingsScreen({ user, onBack, onOpenGmeet, onOpenDe
               <Ionicons name="chevron-forward" size={17} color={COLORS.faint} />
             </TouchableOpacity>
           )}
+          {/* Points this device at a different Odoo. Without it, a wrong address
+              can only be fixed by reinstalling. */}
+          <TouchableOpacity style={s.row} activeOpacity={0.7} onPress={() => setServerOpen(true)}>
+            <Ionicons name="server-outline" size={20} color={COLORS.primary} />
+            <Text style={[s.rowLabel, { flex: 1 }]}>Refresh server</Text>
+            <Ionicons name="chevron-forward" size={17} color={COLORS.faint} />
+          </TouchableOpacity>
           <TouchableOpacity style={s.row} activeOpacity={0.7} onPress={() => setLogoutOpen(true)}>
             <Ionicons name="log-out-outline" size={20} color={COLORS.red} />
             <Text style={[s.rowLabel, { flex: 1, color: COLORS.red }]}>Log out</Text>
@@ -506,6 +515,31 @@ export default function ChatSettingsScreen({ user, onBack, onOpenGmeet, onOpenDe
             </TouchableOpacity>
           </View>
         </ScrollView>
+      </PopupModal>
+
+      {/* Refresh server. Clears the stored address AND the session — the session
+          belongs to the old host and is worthless against a different one, so
+          leaving it behind would just make every later request fail. */}
+      <PopupModal visible={serverOpen} onClose={() => setServerOpen(false)} title="Refresh server?">
+        <View style={{ padding: SPACING.xl }}>
+          <Text style={s.pwBody}>
+            This device will forget its server, pick up whichever one the admin has
+            configured, and sign you out. Sign back in with your mobile number.
+          </Text>
+          <TouchableOpacity
+            style={s.primaryBtn}
+            onPress={async () => {
+              setServerOpen(false);
+              try {
+                await session.clearConnection();
+                await session.clearSession();
+              } catch (_) { /* logging out anyway */ }
+              onLogout?.();
+            }}
+          >
+            <Text style={s.primaryTxt}>Refresh server</Text>
+          </TouchableOpacity>
+        </View>
       </PopupModal>
 
       {/* Log out confirm */}

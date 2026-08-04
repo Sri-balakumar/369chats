@@ -94,6 +94,7 @@ const MODULES = [
   '../../../hooks/usePlaceCall',
   '../../../hooks/useBackIntercept',
   '../../../services/chat',
+  '../../../services/appServer',
   '../../../services/chatRealtime',
   '../../../utils/openAttachment',
   '../../../utils/downloadAuthed',

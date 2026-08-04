@@ -113,6 +113,10 @@ function Row({ conv, onPress, onLongPress }) {
 export default function ChatListScreen({
   onOpenChat, onNewChat, onOpenSearch, onOpenStarred, onOpenSettings,
   onOpenNotifications, onOpenAdmin, onOpenHit, onLogout,
+  // The server this device points at could not be reached at launch. Cached
+  // chats still render; this puts a red line under the 369Chats title so the
+  // staleness is explained rather than mysterious.
+  serverUnreachable,
 }) {
   // Edge-to-edge draws under the nav/gesture bar, so every bottom-anchored list
   // has to reserve that space itself or the last row sits behind the buttons.
@@ -393,7 +397,20 @@ export default function ChatListScreen({
           </>
         ) : (
           <>
-            <Text style={s.headerTitle}>369Chats</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={s.headerTitleFlat}>369Chats</Text>
+              {/* The server this device points at is unreachable. Cached chats
+                  still render, so without this the app just looks stale — the
+                  line explains why nothing new is arriving, and whose job it is
+                  to fix. */}
+              {!!serverUnreachable && (
+                <Text style={s.noServerLine} numberOfLines={1}>
+                  {serverUnreachable === 'unconfigured'
+                    ? 'No server set up — contact your admin.'
+                    : "Can't reach the server — contact your admin."}
+                </Text>
+              )}
+            </View>
             {/* The notification bell was removed: chat unreads already show on the
                 rows, the tab badge and the ⋮, so a second unread language in the
                 same header was noise. The feed is still reachable from Settings. */}
@@ -873,6 +890,10 @@ const s = themed((C) => ({
   // as a brand line rather than a page title.
   // No marginLeft any more — that only existed to clear the logo mark.
   headerTitle: { flex: 1, fontSize: 20, fontWeight: '900', color: C.navy },
+  // The title now sits in a column with the warning line beneath it, so the
+  // flex:1 moved to that wrapper — leaving it here would fight it.
+  headerTitleFlat: { fontSize: 20, fontWeight: '900', color: C.navy },
+  noServerLine: { fontSize: 11.5, color: C.red, fontWeight: '700', marginTop: 1 },
   iconBtn: {
     width: 40, height: 40, borderRadius: RADIUS.lg, backgroundColor: COLORS.card,
     alignItems: 'center', justifyContent: 'center', ...SHADOW,

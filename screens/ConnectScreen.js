@@ -156,6 +156,11 @@ export default function ConnectScreen({ onLogin, goBack, visible = true }) {
       }
       await session.saveConnection({
         serverUrl: base, db: selectedDb,
+        // NOTE: this is a temporary override, not a pin. Every device follows
+        // the App Servers row in Odoo, so the next check (launch, resume, or the
+        // 60s tick) replaces whatever is typed here. A device that used to be
+        // able to opt out permanently meant an admin could change the server and
+        // never reach it.
         // Lock this device to the Odoo account that just authenticated — only
         // this account's mobile number may app-login here (until re-setup).
         setupUid: result.uid,
