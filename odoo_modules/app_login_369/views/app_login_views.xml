@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================== -->
+    <!-- Users — who may sign in to the app                             -->
+    <!--                                                                 -->
+    <!-- This is the ONLY place app login is managed. Where KRA is also  -->
+    <!-- installed its "Login Management" screen edits a DIFFERENT field -->
+    <!-- (kpi_mobile_number); a number changed there will not reach the  -->
+    <!-- app, and the failure is silent. Say so on the screen itself     -->
+    <!-- rather than hoping it is remembered.                            -->
+    <!-- ============================================================== -->
+    <record id="view_app_login_users_list" model="ir.ui.view">
+        <field name="name">app.login.users.list</field>
+        <field name="model">res.users</field>
+        <field name="arch" type="xml">
+            <!-- NOT editable. An editable list makes "New" add an inline row,
+                 so the form — where the number, country and password live —
+                 never opens. -->
+            <list string="App Users">
+                <field name="name"/>
+                <field name="login"/>
+                <field name="app_login_mobile"/>
+                <field name="app_login_enabled" widget="boolean_toggle"/>
+                <field name="app_login_last_at" optional="show"/>
+                <field name="app_login_last_device" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_app_login_users_form" model="ir.ui.view">
+        <field name="name">app.login.users.form</field>
+        <field name="model">res.users</field>
+        <field name="arch" type="xml">
+            <form string="App User">
+                <header>
+                    <button name="action_app_login_reset_password" type="object"
+                            string="Reset App Password" class="btn-secondary"
+                            confirm="Clear this person's app password? They will sign in with a WhatsApp code and set a new one."/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name" placeholder="Full name"/></h1>
+                    </div>
+                    <group>
+                        <group string="Sign In">
+                            <field name="app_login_mobile" placeholder="9999999999"/>
+                            <field name="app_login_country_id"
+                                   options="{'no_create': True}"/>
+                            <field name="app_login_enabled" widget="boolean_toggle"/>
+                            <field name="app_login_must_change" readonly="1"/>
+                        </group>
+                        <group string="Odoo Account">
+                            <!-- Required by res.users, and the identity the rest
+                                 of Odoo knows this person by. Self sign-up
+                                 derives it from the number. -->
+                            <field name="login"/>
+                            <field name="email"/>
+                        </group>
+                    </group>
+                    <group string="Last Seen">
+                        <field name="app_login_last_at" readonly="1"/>
+                        <field name="app_login_last_device" readonly="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_app_login_users" model="ir.actions.act_window">
+        <field name="name">Users</field>
+        <field name="res_model">res.users</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[('share', '=', False)]</field>
+        <field name="context">{'form_view_ref': 'app_login_369.view_app_login_users_form'}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Add someone who may sign in to the app</p>
+            <p>
+                Give them a mobile number and switch <b>App Login Allowed</b> on. They sign in
+                by typing that number and entering the code sent to it on WhatsApp.
+            </p>
+            <p>
+                This is the only screen that controls app login. If KRA is also installed, its
+                Login Management screen edits a different field and changes made there will not
+                reach the app.
+            </p>
+        </field>
+    </record>
+
+    <!-- The screen the Users menu actually opens. The list and form above stay:
+         they are what a direct record link and any other action still use, and
+         they are the fallback if the component ever fails to load. -->
+    <record id="action_app_login_users_screen" model="ir.actions.client">
+        <field name="name">Users</field>
+        <field name="tag">app_login_users</field>
+    </record>
+
+    <!-- App Servers keeps a way in. The button is added FROM HERE by view
+         inheritance, so app_server_config never references this module and stays
+         installable on its own. -->
+    <record id="view_app_server_config_form_app_login" model="ir.ui.view">
+        <field name="name">app.server.config.form.app.login</field>
+        <field name="model">app.server.config</field>
+        <field name="inherit_id" ref="app_server_config.view_app_server_config_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet" position="before">
+                <header>
+                    <button name="%(action_app_login_users_screen)d" type="action"
+                            string="App Login Users" class="btn-secondary"
+                            icon="fa-users"/>
+                </header>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- ============================================================== -->
+    <!-- Sign-ups — who let themselves in, and what was refused         -->
+    <!-- ============================================================== -->
+    <record id="view_app_signup_attempt_list" model="ir.ui.view">
+        <field name="name">app.signup.attempt.list</field>
+        <field name="model">app.signup.attempt</field>
+        <field name="arch" type="xml">
+            <list string="Sign-Up Attempts" create="false" edit="false">
+                <field name="create_date" string="When"/>
+                <field name="phone"/>
+                <field name="name"/>
+                <field name="outcome"
+                       decoration-success="outcome == 'created'"
+                       decoration-danger="outcome in ('bad_code', 'capped', 'throttled')"
+                       decoration-muted="outcome in ('signup_off', 'exists')"/>
+                <field name="user_id"/>
+                <field name="ip" optional="show"/>
+                <field name="device" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_app_login_signups" model="ir.actions.act_window">
+        <field name="name">Sign-Ups</field>
+        <field name="res_model">app.signup.attempt</field>
+        <field name="view_mode">list</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Nobody has tried to sign themselves up</p>
+            <p>
+                Every self sign-up attempt is recorded here, accepted or not — so an unexpected
+                account is something you notice, rather than something you find out about later.
+            </p>
+        </field>
+    </record>
+
+    <!-- ============================================================== -->
+    <!-- Settings                                                       -->
+    <!-- ============================================================== -->
+    <!-- An OWL screen, not a res.company form. The message editors are the
+         reason: wording is meaningless on its own, because "{name}" and "*bold*"
+         are not what anybody receives, so each one shows a live WhatsApp bubble
+         of the real thing above the box you type in. A form field cannot render
+         that, and without it an admin edits blind. -->
+    <record id="action_app_login_settings" model="ir.actions.client">
+        <field name="name">Settings</field>
+        <field name="tag">app_login_settings</field>
+    </record>
+
+
+    <!-- ============================================================== -->
+    <!-- Menus                                                          -->
+    <!-- ============================================================== -->
+    <!-- No web_icon: it names a file that must exist, and a missing one breaks
+         the Apps grid rather than falling back quietly. Odoo draws a default. -->
+    <menuitem id="menu_app_login_root"
+              name="App Login"
+              sequence="49"
+              groups="base.group_system"/>
+
+    <!-- A root menu needs a CHILD carrying the action: an action placed directly
+         on a root menu does not open from the Apps grid. -->
+    <menuitem id="menu_app_login_users"
+              name="Users"
+              parent="menu_app_login_root"
+              action="action_app_login_users_screen"
+              sequence="10"/>
+
+    <menuitem id="menu_app_login_signups"
+              name="Sign-Ups"
+              parent="menu_app_login_root"
+              action="action_app_login_signups"
+              sequence="20"/>
+
+    <menuitem id="menu_app_login_settings"
+              name="Settings"
+              parent="menu_app_login_root"
+              action="action_app_login_settings"
+              sequence="30"/>
+
+</odoo>

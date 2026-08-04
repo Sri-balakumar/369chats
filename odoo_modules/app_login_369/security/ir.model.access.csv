@@ -1,0 +1,4 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_app_login_otp_system,app.login.otp.system,model_app_login_otp,base.group_system,1,1,1,1
+access_app_signup_otp_system,app.signup.otp.system,model_app_signup_otp,base.group_system,1,1,1,1
+access_app_signup_attempt_system,app.signup.attempt.system,model_app_signup_attempt,base.group_system,1,1,0,1
