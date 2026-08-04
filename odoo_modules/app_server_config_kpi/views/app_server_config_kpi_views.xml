@@ -8,23 +8,38 @@
         <field name="arch" type="xml">
             <xpath expr="//sheet/group" position="after">
                 <separator string="Users"/>
-                <div class="text-muted mb-2">
-                    The number each person signs in with. This is the same field as
-                    Login Management (Non-odoo) — editing it here changes it there
-                    too, because there is only one of it.
-                </div>
-                <!-- The FIELD is readonly (the set of users is not being edited —
-                     it is everyone in this Odoo) while the LINES are editable, so
-                     a change writes straight to res.users. -->
-                <field name="user_ids" nolabel="1" readonly="1">
-                    <list editable="bottom" create="false" delete="false">
-                        <field name="name" readonly="1"/>
-                        <field name="kpi_mobile_number" placeholder="9876543210"/>
-                        <field name="kpi_app_login_enabled" widget="boolean_toggle"/>
-                    </list>
-                </field>
+                <!-- The users EMBEDDED here, not a button that navigates away.
+                     A <widget> is the only way to put an OWL component inside a
+                     form: this layout (login under the name, country dropdown
+                     above a +91 prefix box) cannot be built from fields.
+
+                     Same component the Users menu opens, so the two can never
+                     look different. It writes through kra_kpi_module's existing
+                     /kpi_user_access/* routes, so this and Login Management
+                     (Non-odoo) edit the same res.users fields. -->
+                <widget name="app_server_users"/>
             </xpath>
         </field>
     </record>
+
+    <!-- Our own Users screen. An OWL component, because the layout (login under
+         the name, country dropdown above a +91 prefix box) cannot be expressed
+         in a list view.
+
+         It writes through kra_kpi_module's EXISTING /kpi_user_access/* routes,
+         so this and Login Management (Non-odoo) edit the same res.users fields —
+         a change in either shows in the other. The UI is duplicated; the data
+         deliberately is not. -->
+    <record id="action_app_server_users" model="ir.actions.client">
+        <field name="name">Users</field>
+        <field name="tag">app_server_users</field>
+    </record>
+
+    <menuitem id="menu_app_server_users"
+              name="Users"
+              parent="app_server_config.menu_app_server_root"
+              action="action_app_server_users"
+              sequence="20"
+              groups="base.group_system"/>
 
 </odoo>

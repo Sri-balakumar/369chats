@@ -27,6 +27,12 @@
         "views/app_server_config_kpi_views.xml",
     ],
 
+    "assets": {
+        "web.assets_backend": [
+            "app_server_config_kpi/static/src/users_screen/users_screen.js",
+        ],
+    },
+
     "installable": True,
     "application": False,
     # Installs itself as soon as both sides are present, which is what a bridge
