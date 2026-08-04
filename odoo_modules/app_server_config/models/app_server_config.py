@@ -317,12 +317,19 @@ class AppServerConfig(models.Model):
             self.client_db = self.client_db_id.name
 
     @api.model
-    def _resolve(self, app_key, fallback_url=None, fallback_db=None):
+    def _resolve(self, app_key, fallback_db=None):
         """Return {url, db} for `app_key`, or None when it is not configured.
 
-        Blank fields fall back to the caller's own host/database, so a row that
-        has been created but not filled in still answers usefully instead of
-        sending devices to an empty address.
+        A BLANK Client URL means not configured, full stop. It used to fall back
+        to whatever host the request arrived on, which seemed helpful — a row
+        created but not filled in still answered something. In practice it made
+        the field look broken: clearing the URL changed nothing, because the
+        anchor simply answered with its own address. An admin emptying that field
+        is switching the app off, and it has to behave that way.
+
+        The DATABASE still falls back to the caller's own, which is not the same
+        thing: an empty database is genuinely ambiguous rather than a decision,
+        and on a single-database server it is the only possible answer.
         """
         key = (app_key or '').strip()
         if not key:
@@ -335,7 +342,10 @@ class AppServerConfig(models.Model):
             [('app_key', '=', key), ('is_live', '=', True)], limit=1)
         if not row:
             return None
+        url = (row.client_url or '').strip().rstrip('/')
+        if not url:
+            return None
         return {
-            'url': (row.client_url or fallback_url or '').rstrip('/'),
+            'url': url,
             'db': row.client_db or fallback_db or '',
         }

@@ -29,19 +29,24 @@ class AppServerResolve(http.Controller):
         if not app_key:
             return {'status': False, 'error': 'Missing app key.'}
 
-        # What this request itself arrived on — the sensible answer when a row
-        # exists but its fields were left blank.
-        try:
-            fallback_url = request.httprequest.host_url.rstrip('/')
-        except Exception:
-            fallback_url = ''
+        # Only the DATABASE falls back to this request's own. The URL does not:
+        # a blank Client URL is an admin switching the app off, not a gap to
+        # paper over. See _resolve.
         fallback_db = request.db or ''
 
         cfg = request.env['app.server.config'].sudo()._resolve(
-            app_key, fallback_url=fallback_url, fallback_db=fallback_db)
+            app_key, fallback_db=fallback_db)
 
         if not cfg or not cfg.get('url'):
             _logger.info("app/resolve: no configuration for app_key=%r", app_key)
-            return {'status': False, 'error': 'This app is not configured on this server.'}
+            # `configured: False` distinguishes "the admin has switched this off"
+            # from "I could not reach the server at all". The app treats them
+            # differently: the first clears the stored server, the second keeps
+            # the last known one so a network blip does not strand a device.
+            return {
+                'status': False,
+                'configured': False,
+                'error': 'This app is not configured on this server.',
+            }
 
         return {'status': True, 'url': cfg['url'], 'db': cfg['db']}

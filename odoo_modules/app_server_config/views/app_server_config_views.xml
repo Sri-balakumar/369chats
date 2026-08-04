@@ -138,9 +138,13 @@
               groups="base.group_system"/>
 
     <!-- A root menu needs a CHILD carrying the action: an action placed directly
-         on a root menu does not open from the Apps grid. -->
+         on a root menu does not open from the Apps grid.
+
+         Named "Servers", not "App Servers" — the root is already called that, and
+         two entries with the same label read as a duplicate rather than as an
+         app and the page inside it. -->
     <menuitem id="menu_app_server_config"
-              name="App Servers"
+              name="Servers"
               parent="menu_app_server_root"
               action="action_app_server_config"
               sequence="10"
