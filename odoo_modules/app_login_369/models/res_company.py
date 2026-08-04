@@ -6,7 +6,7 @@ number field should use, and the developer switch that makes testing possible
 without a WhatsApp session.
 """
 
-from odoo import api, fields, models
+from odoo import fields, models
 
 # Written for a SIGN-IN, not a password reset. kra_kpi_module's template says
 # "Password Reset ... enter this code to set your new password", which is simply

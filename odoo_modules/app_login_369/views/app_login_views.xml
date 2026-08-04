@@ -157,7 +157,12 @@
          are not what anybody receives, so each one shows a live WhatsApp bubble
          of the real thing above the box you type in. A form field cannot render
          that, and without it an admin edits blind. -->
-    <record id="action_app_login_settings" model="ir.actions.client">
+    <!-- A NEW xmlid, not a reuse of action_app_login_settings. That one was an
+         ir.actions.server, and Odoo cannot change the model an existing xmlid
+         points at — reusing it fails the whole upgrade and rolls back. The old
+         record and the res.company form it opened are dropped as orphans, since
+         they no longer appear in any data file. -->
+    <record id="action_app_login_settings_screen" model="ir.actions.client">
         <field name="name">Settings</field>
         <field name="tag">app_login_settings</field>
     </record>
@@ -190,7 +195,7 @@
     <menuitem id="menu_app_login_settings"
               name="Settings"
               parent="menu_app_login_root"
-              action="action_app_login_settings"
+              action="action_app_login_settings_screen"
               sequence="30"/>
 
 </odoo>
