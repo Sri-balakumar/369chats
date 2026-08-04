@@ -14,7 +14,17 @@
                 <field name="name"/>
                 <field name="client_url"/>
                 <field name="client_db"/>
-                <field name="active" widget="boolean_toggle"/>
+                <!-- Read-only: switching is done by the button beside it, which
+                     reloads. An editable toggle here writes one row and the
+                     client re-reads only that row, so the servers this switches
+                     OFF carried on showing as on until a manual refresh. -->
+                <field name="is_live" widget="boolean_toggle" readonly="1"/>
+                <!-- Confirmed, because it points every phone somewhere else and
+                     signs everyone out on their next launch. -->
+                <button name="action_make_live" type="object"
+                        string="Make this the live one" icon="fa-toggle-on"
+                        class="btn-link" invisible="is_live"
+                        confirm="Point the apps at this server? The one currently active will be switched off, and anyone signed in will be asked to sign in again next time they open the app."/>
             </list>
         </field>
     </record>
@@ -35,22 +45,51 @@
                                  databases; no button to press. -->
                             <field name="client_url" placeholder="https://odoo.example.com"/>
                             <field name="db_options" invisible="1"/>
-                            <!-- The dropdown, once a fetch has found something. -->
+                            <field name="db_failed" invisible="1"/>
+                            <!-- Result of the last lookup: red when the server
+                                 could not be reached or offered nothing, so a
+                                 failure is still visible after the popup has
+                                 been dismissed. -->
+                            <div colspan="2" class="text-danger fw-bold"
+                                 invisible="not db_failed">
+                                <i class="fa fa-exclamation-triangle me-1"/>
+                                <field name="db_status" nolabel="1" readonly="1"
+                                       class="d-inline text-danger fw-bold"/>
+                            </div>
+                            <div colspan="2" class="text-success"
+                                 invisible="db_failed or not db_status">
+                                <i class="fa fa-check me-1"/>
+                                <field name="db_status" nolabel="1" readonly="1"
+                                       class="d-inline text-success"/>
+                            </div>
+                            <!-- ALWAYS visible. It used to be hidden until a
+                                 fetch had succeeded, which meant a new record
+                                 showed only the text box below — so the field
+                                 looked like something you type, which is the
+                                 opposite of the intent. It is the primary
+                                 control; it simply has nothing in it until a
+                                 URL has been entered. -->
                             <field name="client_db_id"
                                    options="{'no_create': True, 'no_open': True}"
-                                   invisible="not db_options"
-                                   required="db_options != False"/>
-                            <!-- Fallback: a server with list_db = False returns
-                                 nothing to choose from, so the name has to be
-                                 typed. This is also the field the app endpoint
-                                 reads, which is why it stays visible (readonly)
-                                 once a dropdown choice has been made. -->
+                                   placeholder="Select your database"/>
+                            <!-- The value the app endpoint actually receives.
+                                 Read-only once the dropdown has supplied it;
+                                 editable when a fetch found nothing, which is
+                                 the real case of a server running with
+                                 list_db = False. -->
                             <field name="client_db" placeholder="sales_test"
                                    readonly="db_options != False"/>
                         </group>
                         <group string="Admin">
                             <field name="name" placeholder="369Chats mobile app"/>
-                            <field name="active"/>
+                            <!-- Read-only here too, switched by the button, so
+                                 the form and the list behave the same way. -->
+                            <field name="is_live" widget="boolean_toggle" readonly="1"/>
+                            <button name="action_make_live" type="object"
+                                    string="Make this the live one"
+                                    icon="fa-toggle-on" class="btn-link"
+                                    invisible="is_live"
+                                    confirm="Point the apps at this server? The one currently active will be switched off, and anyone signed in will be asked to sign in again next time they open the app."/>
                         </group>
                     </group>
                     <div class="text-muted">
@@ -72,6 +111,11 @@
         <field name="name">App Servers</field>
         <field name="res_model">app.server.config</field>
         <field name="view_mode">list,form</field>
+        <!-- active_test kept as a belt-and-braces: `active` is now unused and
+             always true, so nothing should ever be hidden, but this guarantees
+             it even if a row is archived by some other route. The toggle the
+             admin actually uses is is_live. -->
+        <field name="context">{'active_test': False}</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">Tell a mobile app where to connect</p>
             <p>

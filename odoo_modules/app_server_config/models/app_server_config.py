@@ -59,7 +59,26 @@ class AppServerConfig(models.Model):
     # Whether the last fetch found anything, so the form can show the dropdown or
     # fall back to the text box. Not for the app — purely a UI hint.
     db_options = fields.Char(string='Databases found', readonly=True, copy=False)
-    active = fields.Boolean(string='Active', default=True)
+    # What happened on the last fetch, shown under the field. Two fields rather
+    # than one so the form can colour a failure red without a JS widget.
+    db_status = fields.Char(string='Status', readonly=True, copy=False)
+    db_failed = fields.Boolean(string='Lookup failed', readonly=True, copy=False)
+
+    # `is_live`, NOT `active`. `active` is a magic field name in Odoo: the web
+    # client hides those records from every list unless you go looking for them,
+    # so switching one server on made the previous row DISAPPEAR — which reads as
+    # "my old setup was deleted". Setting active_test=False on the action did not
+    # reliably override it either.
+    #
+    # A plain boolean has no such behaviour: every row always shows, and the
+    # toggle means exactly what it says.
+    is_live = fields.Boolean(
+        string='Active', default=True, copy=False,
+        help="The server apps are pointed at right now. Only one can be on; "
+             "switching one on switches the others off.")
+    # Kept so archiving still exists as a concept, but never used by the UI and
+    # always true, so nothing is hidden from the list.
+    active = fields.Boolean(string='Archived (unused)', default=True)
 
     # NOT a plain unique(app_key). An archived row keeps its key under a SQL
     # unique constraint, so replacing a server would be impossible: you could
@@ -74,22 +93,56 @@ class AppServerConfig(models.Model):
     # over, which is the opposite of what is wanted. The invariant is maintained
     # by making the new row win, not by rejecting it.
 
-    def _deactivate_siblings(self):
-        """Switch off any other live row for the same app.
+    def unlink(self):
+        """Refuse to delete the server the apps are currently pointed at.
 
-        Making a row active is a statement about where that app should go, and
-        two answers is not a state worth supporting — /app/resolve would have to
-        pick one arbitrarily. Different apps are untouched: each key is its own
-        question.
+        Deleting it would leave /app/resolve with no answer for that app, and
+        every device would start getting "not configured" on its next launch —
+        with nothing on screen to explain why. Switching to another server first
+        is the deliberate step that makes that safe.
+        """
+        live = self.filtered('is_live')
+        if live:
+            raise UserError(
+                "%s is the server your apps are using right now, so it cannot be "
+                "deleted.\n\nSwitch another server on first — that stands this one "
+                "down — and then delete it."
+                % (live[0].app_key or 'This row'))
+        return super().unlink()
+
+    def action_make_live(self):
+        """Switch this server on, and everything else off, then RELOAD.
+
+        The reload is the point. A plain toggle in the list writes one row and
+        the client re-reads only that row, so the siblings this switches off
+        server-side kept showing as ON until the page was refreshed — which
+        looked exactly like the rule not working.
+        """
+        self.ensure_one()
+        self.write({'is_live': True})
+        return {'type': 'ir.actions.client', 'tag': 'reload'}
+
+    def _deactivate_siblings(self):
+        """Exactly ONE row is live at a time. Switching one on switches the rest
+        off.
+
+        Note this is deliberately GLOBAL, not per app_key: turning a row on is
+        treated as "this is the server we are on now", and leaving another row
+        lit alongside it invites the question of which one is real. The archived
+        rows keep their settings, so switching back is one toggle.
+
+        The consequence, stated plainly: a SECOND app cannot be configured at the
+        same time as the first — activating its row stands the other down, and
+        the app whose row went inactive gets "not configured" from /app/resolve.
+        If two apps ever need to resolve at once, this is the method to relax
+        (search on app_key as well) and nothing else has to change.
         """
         for rec in self:
-            if not (rec.active and rec.app_key):
+            if not rec.is_live:
                 continue
-            others = self.search([
-                ('app_key', '=', rec.app_key), ('id', '!=', rec.id),
-            ])
+            others = self.search([('id', '!=', rec.id), ('is_live', '=', True)])
             if others:
-                others.write({'active': False})
+                others.write({'is_live': False})
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -101,7 +154,7 @@ class AppServerConfig(models.Model):
         res = super().write(vals)
         # Only when this write could have made a row live — otherwise every edit
         # would re-run the search for nothing.
-        if vals.get('active') or 'app_key' in vals:
+        if vals.get('is_live') or 'app_key' in vals:
             self._deactivate_siblings()
         return res
 
@@ -212,6 +265,8 @@ class AppServerConfig(models.Model):
         """
         if not self.client_url:
             self.db_options = False
+            self.db_status = False
+            self.db_failed = False
             self.client_db_id = False
             return None
 
@@ -223,7 +278,12 @@ class AppServerConfig(models.Model):
         try:
             names = self._fetch_databases(url)
         except UserError as exc:
+            # Shown in red on the form AND as a popup. The popup is easy to
+            # dismiss and forget; the red line stays until it is fixed.
             self.db_options = False
+            self.client_db_id = False
+            self.db_failed = True
+            self.db_status = str(exc).split('\n')[0]
             return {'warning': {
                 'title': "Couldn't load databases",
                 'message': str(exc),
@@ -231,16 +291,23 @@ class AppServerConfig(models.Model):
 
         rows = self._cache_databases(url, names)
         self.db_options = ', '.join(names)
+        self.db_failed = False
+        self.db_status = "%d database%s found — choose one below." % (
+            len(names), '' if len(names) == 1 else 's')
 
-        # One database is the normal case — just use it. With several, keep the
-        # admin's existing choice when it still exists on this server, so
-        # re-entering the same URL cannot silently repoint a live app.
-        if len(rows) == 1:
-            self.client_db_id = rows[0]
-        elif self.client_db and self.client_db in names:
+        # Deliberately does NOT pick one, not even when the server offers only a
+        # single database. Choosing the database is the admin's decision and it
+        # decides where every phone connects — silently filling it in invites
+        # saving a value nobody actually looked at.
+        #
+        # The one thing carried over is a choice already made: if the previous
+        # selection still exists on this server it is kept, so re-entering the
+        # same URL does not throw away work.
+        if self.client_db and self.client_db in names:
             self.client_db_id = rows.filtered(lambda r: r.name == self.client_db)[:1]
         else:
             self.client_db_id = False
+            self.client_db = False
         return None
 
     @api.onchange('client_db_id')
@@ -260,7 +327,12 @@ class AppServerConfig(models.Model):
         key = (app_key or '').strip()
         if not key:
             return None
-        row = self.sudo().search([('app_key', '=', key)], limit=1)
+        # is_live MUST be in the domain. It used to rely on Odoo's magic `active`
+        # field filtering switched-off rows out automatically; `is_live` is a
+        # plain boolean and gets no such help, so without this an app could be
+        # handed a server that had been switched off.
+        row = self.sudo().search(
+            [('app_key', '=', key), ('is_live', '=', True)], limit=1)
         if not row:
             return None
         return {

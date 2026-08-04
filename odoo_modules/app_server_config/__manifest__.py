@@ -1,6 +1,6 @@
 {
     "name": "App Server Config",
-    "version": "1.0",
+    "version": "19.0.1.1",
     "author": "Alphalize",
     "category": "Technical",
     "summary": "Tells mobile apps which server and database to talk to.",
@@ -27,6 +27,8 @@
         "security/ir.model.access.csv",
         "views/app_server_config_views.xml",
     ],
+
+    "post_init_hook": "post_init_hook",
 
     "installable": True,
     # Shows its own tile in the Apps grid. Without this the top-level menu is
