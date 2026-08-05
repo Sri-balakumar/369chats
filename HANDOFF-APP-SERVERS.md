@@ -180,20 +180,62 @@ Metro reads env vars **at startup** — `npx expo start -c` after editing, and l
 
 ---
 
+## IT WORKS ON A DEVICE — 2026-08-05
+
+The whole chain, on a Galaxy Tab A, signed in as `admin` on 7092090133:
+
+```
+/app/resolve      → http://10.123.247.175:8069, sales_test
+/app_login/start  → mode: login
+/app_login/verify → signed in by code
+/chat/lists  /chat/me  /chat/conversations → ok
+```
+
+Those last three are the result that matters. They are `auth='user'`, so **the session survived the
+request that created it** — the `can_save` fix, confirmed on hardware rather than reasoned about.
+
+Self sign-up works too: **Sri / 9486020356**, role **User**, country **IN**, no password, created by
+code alone.
+
+### Two bugs it surfaced — both LIE to the user, neither fixed yet
+
+1. **"The code couldn't be sent" appears on a message that arrived.** neonize 0.4.1 throws
+   `Error parsing message with type 'neonize.SendMessageReturnFunction'` — it fails to parse the
+   ACKNOWLEDGEMENT, not the send. `whatsapp_session.send_message` treats any exception as failure,
+   so `/app_login/start` answers `sent: false` and the code screen shows a red warning on a flow that
+   worked. Proven: dev auto-fill was OFF and the code still arrived.
+   Fix in the GENERIC module (kra's OTP and POS hit the same false failure), and match only that
+   specific error — a blanket catch would swallow a genuinely dead session, which is the failure that
+   actually matters. Upgrading neonize is the real cure but is a live dependency for POS and KRA;
+   do it deliberately and separately.
+2. **"No messages yet" renders upside down.** `ChatThreadScreen.js:981` is `inverted`; line 997 puts
+   `EmptyState` in `ListEmptyComponent`. React Native counter-flips each CELL of an inverted list but
+   not the empty component. Wrap it in `<View style={{transform:[{scaleY:-1}]}}>`. Web is unaffected
+   (a plain `<div>`, no reversal).
+
+**Sign-up asking for no password is correct, not a bug.** WhatsApp never asks; the account is created
+with no hash and `must_change=false`, so the code is the way in every time. A password is optional
+and set at Settings ▸ App password.
+
 ## Still open
 
 * **The LAN anchor is testing-only.** Unreachable on mobile data. Needs the live domain before
   shipping — that value is the one thing a rebuild is required to change.
-* **The live row has no Client URL right now**, so `/app/resolve` answers `configured: false` and
-  every phone shows the red "contact your admin" banner. That is the switch working, not a fault —
-  but the app is off until somebody types an address into App Servers ▸ Servers.
+* **`client_db` is EMPTY on the live row.** It works only because `client_url` happens to name this
+  same server, so `_resolve` falls back to the local database name. Point that row anywhere else and
+  every phone is handed a database that does not exist there. Pick it from the dropdown and save.
+* **Re-pair WhatsApp** to pick up the device name "369Chats App Login". It is fixed at PAIRING time,
+  and the current link predates the rename, so it still reads "App Login WhatsApp Sender". Unlink on
+  the phone, then press Connect. (The linked-device ICON cannot be ours: `DeviceProps` carries only
+  `os`, `version`, `platformType`, `requireFullSync`, `historySyncConfig` — there is no image field,
+  and WhatsApp draws the picture from `platformType`.)
+* **`-u whatsapp_neonize` FAILS on sales_test**, before any change of ours: a NOT NULL violation
+  inserting `ir_model_inherit` for `pos.order`. `point_of_sale` IS installed and pos.order already
+  has valid inherit rows, so the first guess was wrong and the cause is unknown. That module cannot
+  take a schema change on this database until someone finds it.
 * **4 of 21 internal users have no `app_login_mobile`** (Demo Alice, Demo Bob, Demo Carol, Marc
   Demo). They have no number in KRA either, so there is nothing to import — with the Odoo login
   locked they cannot get into the app until one is typed on App Login ▸ Users.
-* **Nothing here is device-tested.** Highest value next step: `npx expo start -c`, then watch
-  clearing the Client URL sign the app out, and setting it clear the banner.
-* Everything from this session is **uncommitted** except the Odoo modules (pushed as `041e4b9`,
-  `7081185` — the latter added `app_server_config_kpi`, which has since been deleted).
 * From earlier batches, unrelated: video calls cut off (needs one repro with the in-app debug log
   on), TURN unset, group photo, invite reset, `admin_approve`, jump-to-date, multi-select,
   @mentions, media-viewer overhaul, video poster frames.
