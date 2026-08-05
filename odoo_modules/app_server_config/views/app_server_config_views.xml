@@ -46,21 +46,17 @@
                             <field name="client_url" placeholder="https://odoo.example.com"/>
                             <field name="db_options" invisible="1"/>
                             <field name="db_failed" invisible="1"/>
-                            <!-- Result of the last lookup: red when the server
-                                 could not be reached or offered nothing, so a
-                                 failure is still visible after the popup has
-                                 been dismissed. -->
-                            <div colspan="2" class="text-danger fw-bold"
-                                 invisible="not db_failed">
-                                <i class="fa fa-exclamation-triangle me-1"/>
-                                <field name="db_status" nolabel="1" readonly="1"
-                                       class="d-inline text-danger fw-bold"/>
-                            </div>
-                            <div colspan="2" class="text-success"
-                                 invisible="db_failed or not db_status">
-                                <i class="fa fa-check me-1"/>
-                                <field name="db_status" nolabel="1" readonly="1"
-                                       class="d-inline text-success"/>
+                            <field name="db_status" invisible="1"/>
+                            <field name="db_checked_url" invisible="1"/>
+                            <!-- Spinner while the lookup runs, then the count or
+                                 the reason it failed. A widget rather than two
+                                 conditional divs because the view language can
+                                 colour a message that has arrived but cannot say
+                                 "still waiting" — and reaching another server can
+                                 take the full ten-second timeout, during which
+                                 the form used to say nothing whatsoever. -->
+                            <div colspan="2">
+                                <widget name="app_server_db_probe"/>
                             </div>
                             <!-- ALWAYS visible. It used to be hidden until a
                                  fetch had succeeded, which meant a new record
@@ -92,15 +88,14 @@
                                     confirm="Point the apps at this server? The one currently active will be switched off, and anyone signed in will be asked to sign in again next time they open the app."/>
                         </group>
                     </group>
+                    <!-- One line. This was three paragraphs, and one of them was
+                         no longer true: an empty Client URL used to fall back to
+                         this server's own address, and now means "switched off".
+                         The rest is on the fields themselves as help text, where
+                         it is read at the moment it matters instead of skipped. -->
                     <div class="text-muted">
-                        Apps ask this server for their address on every cold start, so changing
-                        the URL or database here moves every device by itself — no rebuild and no
-                        re-setup. Anyone already signed in is asked to sign in again next time they
-                        open the app, so keep the old server reachable for a while after switching.
-                        <br/>
-                        Leave a field empty to answer with this server's own address or database.
-                        The app key is what the installed app sends: renaming it breaks every copy
-                        already out there until they are rebuilt.
+                        Changing the server or database here moves every phone on its own — no
+                        rebuild, no re-setup. Anyone signed in is asked to sign in again.
                     </div>
                 </sheet>
             </form>

@@ -1,6 +1,6 @@
 {
     "name": "App Server Config",
-    "version": "19.0.1.1",
+    "version": "19.0.1.2",
     "author": "Alphalize",
     "category": "Technical",
     "summary": "Tells mobile apps which server and database to talk to.",
@@ -27,6 +27,15 @@
         "security/ir.model.access.csv",
         "views/app_server_config_views.xml",
     ],
+
+    # One small widget: the spinner under Client URL while the databases are
+    # being fetched. Loaded from `web`, which is already a dependency, so this
+    # adds nothing to what the module needs to install on a bare Odoo.
+    "assets": {
+        "web.assets_backend": [
+            "app_server_config/static/src/db_probe/db_probe.js",
+        ],
+    },
 
     "post_init_hook": "post_init_hook",
 

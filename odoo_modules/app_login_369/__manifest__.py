@@ -48,6 +48,7 @@
         "web.assets_backend": [
             "app_login_369/static/src/users_screen/users_screen.js",
             "app_login_369/static/src/settings_screen/settings_screen.js",
+            "app_login_369/static/src/app_login_link/app_login_link.js",
         ],
     },
 

@@ -37,20 +37,27 @@ build knows: anchorUrl ──► /app/resolve {app:"369chats"}
 | Module | Role | Depends on |
 |---|---|---|
 | `app_server_config` | server rows + `/app/resolve` | `base`, `web` **only** |
-| `app_server_config_kpi` | the Users screen | + `kra_kpi_module`, `auto_install` |
+| `app_login_369` | who may sign in, on what number | + `whatsapp_neonize`, `app_server_config` |
 
-The split is deliberate: the core installs on any Odoo, for any app. Mobile numbers are
-`kra_kpi_module`'s field, so anything touching them lives in the bridge.
+The split is deliberate: the core installs on any Odoo, for any app, and knows nothing about people.
 
-**`kra_kpi_module` is not modified.** Its routes are called; none of its files are edited.
+**`kra_kpi_module` is not modified, and nothing depends on it any more.**
 
 * **App Servers ▸ Servers** — app key, Client URL, Database (dropdown, auto-fetched from the URL),
-  and one live row at a time. Switching is a confirmed button that reloads.
-* **App Servers ▸ Users** — an OWL component (`app_server_config_kpi/static/src/users_screen/`)
-  mirroring Login Management's Team Members: name + login, role, country + `+91` number, last login,
-  last device, login toggle, Reset. It writes through kra's existing `/kpi_user_access/*` routes, so
-  it and Login Management edit the same `res.users` fields — **the UI is duplicated, the data
-  deliberately is not.** If anyone gives that screen its own storage, that property is lost.
+  and one live row at a time. Switching is a confirmed button that reloads. A header button goes to
+  App Login ▸ Users; it is a widget (`app_login_369/static/src/app_login_link/`) rather than a
+  `type="action"` button so it lands on the App Login *page* instead of opening the users list
+  inside App Servers.
+* **App Login ▸ Users** — the one place app login is managed. Name + login, role, country + `+91`
+  number, last login, last device, login toggle, Reset. Its own fields (`app_login_mobile`,
+  `app_login_enabled`), seeded once from KRA and independent afterwards.
+
+> **There used to be a third module, `app_server_config_kpi`** — a bridge holding a second copy of
+> the users screen, backed by kra's `kpi_mobile_number`. It was **deleted on 2026-08-05**, files and
+> all: it was `auto_install`, so uninstalling alone would have brought it straight back. Two
+> identically-labelled "App Login Users" buttons on one form, one of which showed everybody's role
+> as "User" because it mapped kra's *developer* to that label, is what it cost. If you find a
+> reference to it, it is stale.
 
 ### App
 
@@ -131,12 +138,12 @@ to do nothing for hours: `provisioned` only leads anywhere through the branch it
 net stop "odoo-server-19.0"          # needs Administrator, or robocopy skips locked files
 robocopy "C:\Projects\369Chats\odoo_modules\app_server_config" `
   "C:\Program Files\Odoo 19.0.20260119\server\odoo\addons\app_server_config" /MIR /XD __pycache__
-robocopy "C:\Projects\369Chats\odoo_modules\app_server_config_kpi" `
-  "C:\Program Files\Odoo 19.0.20260119\server\odoo\addons\app_server_config_kpi" /MIR /XD __pycache__
+robocopy "C:\Projects\369Chats\odoo_modules\app_login_369" `
+  "C:\Program Files\Odoo 19.0.20260119\server\odoo\addons\app_login_369" /MIR /XD __pycache__
 & "C:\Program Files\Odoo 19.0.20260119\python\python.exe" `
   "C:\Program Files\Odoo 19.0.20260119\server\odoo-bin" `
   -c "C:\Program Files\Odoo 19.0.20260119\server\odoo.conf" `
-  -d sales_test -u app_server_config,app_server_config_kpi --stop-after-init
+  -d sales_test -u app_server_config,app_login_369 --stop-after-init
 net start "odoo-server-19.0"
 ```
 
@@ -144,8 +151,8 @@ Verify — the exit code will not tell you:
 
 ```sql
 SELECT name, state FROM ir_module_module
- WHERE name IN ('app_server_config','app_server_config_kpi');
-SELECT app_key, is_live, client_url, client_db FROM app_server_config;
+ WHERE name IN ('app_server_config','app_login_369');
+SELECT app_key, is_live, client_url, client_db, db_checked_url FROM app_server_config;
 ```
 
 After any JS change, **Ctrl+Shift+R** in the browser. PowerShell died twice this session with a
@@ -177,12 +184,16 @@ Metro reads env vars **at startup** — `npx expo start -c` after editing, and l
 
 * **The LAN anchor is testing-only.** Unreachable on mobile data. Needs the live domain before
   shipping — that value is the one thing a rebuild is required to change.
-* **4 of 21 internal users have no `kpi_mobile_number`.** With the Odoo login locked, they cannot get
-  into the app at all. Fill them in on the Users screen.
+* **The live row has no Client URL right now**, so `/app/resolve` answers `configured: false` and
+  every phone shows the red "contact your admin" banner. That is the switch working, not a fault —
+  but the app is off until somebody types an address into App Servers ▸ Servers.
+* **4 of 21 internal users have no `app_login_mobile`** (Demo Alice, Demo Bob, Demo Carol, Marc
+  Demo). They have no number in KRA either, so there is nothing to import — with the Odoo login
+  locked they cannot get into the app until one is typed on App Login ▸ Users.
 * **Nothing here is device-tested.** Highest value next step: `npx expo start -c`, then watch
   clearing the Client URL sign the app out, and setting it clear the banner.
 * Everything from this session is **uncommitted** except the Odoo modules (pushed as `041e4b9`,
-  `7081185`).
+  `7081185` — the latter added `app_server_config_kpi`, which has since been deleted).
 * From earlier batches, unrelated: video calls cut off (needs one repro with the in-app debug log
   on), TURN unset, group photo, invite reset, `admin_approve`, jump-to-date, multi-select,
   @mentions, media-viewer overhaul, video poster frames.

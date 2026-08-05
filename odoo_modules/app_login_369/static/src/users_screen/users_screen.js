@@ -19,7 +19,7 @@
 // Only /app_login/admin/*, which belong to this module. Nothing here calls
 // kra_kpi_module — that is the point of the module existing, and the reason the
 // WhatsApp routes are replicated rather than reused.
-import { Component, xml, useState, onWillStart } from "@odoo/owl";
+import { Component, xml, useState, onWillStart, useEffect, useRef } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { rpc } from "@web/core/network/rpc";
 
@@ -35,7 +35,7 @@ export class AppLoginUsers extends Component {
         <!-- No max-width or centering: this also renders inside a form sheet,
              where a centred fixed-width block sits oddly against the fields
              above it. -->
-        <div class="o_app_login_users w-100 p-3">
+        <div class="o_app_login_users w-100 p-3" t-ref="root">
 
             <div t-if="state.loading" class="text-muted py-5 text-center">Loading…</div>
             <div t-elif="!state.authorized" class="alert alert-warning">
@@ -69,15 +69,6 @@ export class AppLoginUsers extends Component {
                             <i class="fa fa-user me-2 text-muted"/>Team Members
                         </h5>
                         <div class="d-flex gap-2">
-                            <!-- For the case the install hook cannot cover: KRA
-                                 installed AFTER this module, so there was nothing
-                                 to copy at the time. Fills blanks only, so it is
-                                 safe to press twice. -->
-                            <button class="btn btn-outline-secondary"
-                                    t-att-disabled="state.importing"
-                                    t-on-click="() => this.importFromKra()">
-                                <i class="fa fa-download me-1"/>Import from KRA
-                            </button>
                             <select class="form-select" style="width: 190px;"
                                     t-on-change="(ev) => this.state.roleFilter = ev.target.value">
                                 <option value="">All roles</option>
@@ -111,6 +102,7 @@ export class AppLoginUsers extends Component {
 
                                 <td>
                                     <select class="form-select form-select-sm"
+                                            t-att-data-role="u.role"
                                             t-on-change="(ev) => this.setRole(u, ev)">
                                         <t t-foreach="ROLES" t-as="r" t-key="r.key">
                                             <option t-att-value="r.key" t-esc="r.label"
@@ -210,10 +202,39 @@ export class AppLoginUsers extends Component {
             countries: [],
             roleFilter: "",
             server: {},
-            importing: false,
         });
 
+        this.rootRef = useRef("root");
+
         onWillStart(async () => { await this.load(); });
+
+        // Make each role dropdown show the role that is actually stored.
+        //
+        // `<option t-att-selected>` above is the correct way to express it, and
+        // it works — but it depends on the browser's "ask for a reset" behaviour
+        // running at the right moment as OWL builds the DOM, which is a lot to
+        // rest a permission column on. If it ever does not fire, every row
+        // silently falls back to the FIRST option, which is "User" — an admin
+        // reading as an ordinary user, and nothing on screen to say otherwise.
+        //
+        // So set .value explicitly after each render. Cheap, and it makes the
+        // displayed role the stored role by construction rather than by
+        // inference. The data-role attribute is only here to carry the value.
+        useEffect(
+            () => {
+                const root = this.rootRef.el;
+                if (!root) {
+                    return;
+                }
+                for (const sel of root.querySelectorAll("select[data-role]")) {
+                    const want = sel.dataset.role || "";
+                    if (want && sel.value !== want) {
+                        sel.value = want;
+                    }
+                }
+            },
+            () => [this.state.users, this.state.roleFilter]
+        );
     }
 
     // ── Derived ──────────────────────────────────────────────────────────
@@ -255,26 +276,6 @@ export class AppLoginUsers extends Component {
             this.state.server = res.server || {};
         } finally {
             this.state.loading = false;
-        }
-    }
-
-    async importFromKra() {
-        this.state.importing = true;
-        try {
-            const res = await rpc("/app_login/admin/import_kra", {});
-            if (!res.status) { alert(res.message || "Not authorized."); return; }
-            // Report who is STILL without a number, not just how many were
-            // filled: those people cannot sign in at all, and a bare success
-            // count would read as "done" while leaving them locked out.
-            const left = res.locked_out || [];
-            alert(left.length
-                ? `Filled ${res.seeded} number(s) from KRA.\n\n${left.length} user(s) still have no number and cannot sign in:\n${left.slice(0, 20).join(", ")}`
-                : `Filled ${res.seeded} number(s) from KRA. Everyone has one.`);
-            await this.load();
-        } catch (e) {
-            this._fail(e, "Import failed.");
-        } finally {
-            this.state.importing = false;
         }
     }
 

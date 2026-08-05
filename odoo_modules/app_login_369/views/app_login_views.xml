@@ -81,9 +81,7 @@
                 by typing that number and entering the code sent to it on WhatsApp.
             </p>
             <p>
-                This is the only screen that controls app login. If KRA is also installed, its
-                Login Management screen edits a different field and changes made there will not
-                reach the app.
+                This is the only screen that controls app login.
             </p>
         </field>
     </record>
@@ -98,7 +96,12 @@
 
     <!-- App Servers keeps a way in. The button is added FROM HERE by view
          inheritance, so app_server_config never references this module and stays
-         installable on its own. -->
+         installable on its own.
+
+         A widget, not `type="action"`. An action button opens the screen INSIDE
+         App Servers — same breadcrumb, same app in the top bar — which read as
+         "the server module has its own users list", the exact confusion this
+         module exists to end. The widget goes to App Login properly. -->
     <record id="view_app_server_config_form_app_login" model="ir.ui.view">
         <field name="name">app.server.config.form.app.login</field>
         <field name="model">app.server.config</field>
@@ -106,9 +109,7 @@
         <field name="arch" type="xml">
             <xpath expr="//sheet" position="before">
                 <header>
-                    <button name="%(action_app_login_users_screen)d" type="action"
-                            string="App Login Users" class="btn-secondary"
-                            icon="fa-users"/>
+                    <widget name="app_login_link"/>
                 </header>
             </xpath>
         </field>

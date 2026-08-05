@@ -253,23 +253,14 @@ class AppLoginAdmin(http.Controller):
         user.action_app_login_reset_password()
         return {'status': True, 'has_password': False}
 
-    @http.route('/app_login/admin/import_kra', type='json', auth='user', methods=['POST'], csrf=False)
-    def import_kra(self, **params):
-        """Fill blank app numbers from kra_kpi_module's, where that module exists.
-
-        The install hook already does this once. This covers the case it cannot:
-        KRA installed AFTER this module, so there was nothing to copy at the
-        time. Idempotent — it only ever fills a blank, so it cannot overwrite a
-        number corrected here since, and pressing it twice is harmless.
-        """
-        denied = self._denied()
-        if denied:
-            return denied
-        from ..hooks import seed_from_kra
-        seeded, locked_out = seed_from_kra(request.env.cr)
-        request.env['res.users'].invalidate_model(
-            ['app_login_mobile', 'app_login_enabled', 'app_login_must_change'])
-        return {'status': True, 'seeded': seeded, 'locked_out': locked_out}
+    # NO import_kra ROUTE. There was one, behind an "Import from KRA" button on
+    # the Users screen, and it is gone with the button — a route nothing calls is
+    # a permission surface nobody maintains.
+    #
+    # The install hook (`hooks.seed_from_kra`) still copies numbers across once,
+    # which is the case that actually matters. It is also idempotent, so the
+    # remaining scenario — KRA installed AFTER this module — is covered by
+    # upgrading this module, not by a button.
 
     # ------------------------------------------------------------------ #
     # message templates                                                  #

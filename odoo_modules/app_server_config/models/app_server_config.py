@@ -8,9 +8,17 @@ from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
-# Long enough for a cold remote Odoo, short enough that a wrong address fails
-# while the admin is still looking at the screen.
-_LIST_TIMEOUT = 10
+# Split, not one number. A wrong address should fail while the admin is still
+# looking at the screen, but a server that is merely SLOW deserves the patience —
+# and one combined timeout cannot express both. Connect covers "is anything
+# there", read covers "how long it thinks about it".
+#
+# Measured on this deployment: a real https lookup is ~5s cold (DNS + TLS) and
+# ~2s warm; a refused port costs 2s regardless, which is Windows retransmitting
+# the SYN and not something a timeout can shorten.
+_CONNECT_TIMEOUT = 5
+_READ_TIMEOUT = 10
+_LIST_TIMEOUT = (_CONNECT_TIMEOUT, _READ_TIMEOUT)
 
 
 class AppServerConfig(models.Model):
@@ -41,7 +49,8 @@ class AppServerConfig(models.Model):
     client_url = fields.Char(
         string='Client URL',
         help="The address DEVICES should call, e.g. https://odoo.example.com. "
-             "Leave empty to answer with the address the request arrived on.")
+             "Leaving it empty switches the app off: /app/resolve then answers "
+             "'not configured' and phones show 'contact your admin'.")
     # The dropdown the admin actually uses. Points at app.server.db rows, which
     # are (re)filled from the target server whenever client_url is entered.
     client_db_id = fields.Many2one(
@@ -63,6 +72,15 @@ class AppServerConfig(models.Model):
     # than one so the form can colour a failure red without a JS widget.
     db_status = fields.Char(string='Status', readonly=True, copy=False)
     db_failed = fields.Boolean(string='Lookup failed', readonly=True, copy=False)
+    # The URL the status above was computed FOR — which is how the form knows a
+    # lookup is in flight without polling anything.
+    #
+    # Odoo writes a typed value into the record locally and only THEN fires the
+    # onchange, so for the whole duration of that call the record holds the new
+    # URL while this field still holds the old one. That gap IS the loading
+    # state, and the spinner is drawn from it. Nothing else can tell you: an
+    # onchange is server-side and offers the client no progress at all.
+    db_checked_url = fields.Char(string='Status is for', readonly=True, copy=False)
 
     # `is_live`, NOT `active`. `active` is a magic field name in Odoo: the web
     # client hides those records from every list unless you go looking for them,
@@ -163,12 +181,31 @@ class AppServerConfig(models.Model):
     # ------------------------------------------------------------------ #
     @api.model
     def _normalize_url(self, url):
-        """Same rules the app applies: add a scheme if missing, drop trailing /."""
+        """Add a scheme if one is missing, and drop the trailing slash.
+
+        WHICH scheme matters more than it looks. This value is handed to every
+        phone, so guessing `http://` for a typed `krakpi.alphalize.com` points a
+        whole company at plaintext against a server that offered TLS — a silent
+        downgrade from a typo-level convenience, and nothing on screen says so.
+
+        So: a bare public-looking hostname gets **https**. An address with an
+        explicit port, a bare IP, or a single-label name like `localhost` gets
+        http, because those are the development and LAN cases, where TLS is
+        usually not set up and https would simply fail.
+
+        Typing the scheme yourself always wins — this only fills in a blank.
+        """
         u = (url or '').strip()
         if not u:
             return ''
         if not u.startswith(('http://', 'https://')):
-            u = 'http://' + u
+            host = u.split('/', 1)[0]
+            looks_local = (
+                ':' in host                                   # explicit port
+                or host.replace('.', '').isdigit()            # bare IPv4
+                or '.' not in host                            # localhost, myserver
+            )
+            u = ('http://' if looks_local else 'https://') + u
         return u.rstrip('/')
 
     @api.model
@@ -190,8 +227,15 @@ class AppServerConfig(models.Model):
 
         endpoint = base + '/web/database/list'
         body = {'jsonrpc': '2.0', 'method': 'call', 'params': {}}
+        # ONE session for both attempts. The POST and the GET below go to the
+        # same host, and without a session the fallback pays for a second DNS
+        # lookup and a second TLS handshake — which on this deployment is the
+        # difference between roughly two seconds and roughly five. Per call
+        # rather than module-level: a Session is not documented as thread-safe,
+        # and Odoo serves this from a worker pool.
+        session = requests.Session()
         try:
-            res = requests.post(
+            res = session.post(
                 endpoint, json=body, timeout=_LIST_TIMEOUT,
                 headers={'Content-Type': 'application/json'})
             data = res.json()
@@ -210,7 +254,7 @@ class AppServerConfig(models.Model):
 
         # Fallback: some deployments answer the plain GET but not the RPC.
         try:
-            res = requests.get(endpoint, timeout=_LIST_TIMEOUT)
+            res = session.get(endpoint, timeout=_LIST_TIMEOUT)
             data = res.json()
             if isinstance(data, list) and data:
                 return data
@@ -267,6 +311,7 @@ class AppServerConfig(models.Model):
             self.db_options = False
             self.db_status = False
             self.db_failed = False
+            self.db_checked_url = False
             self.client_db_id = False
             return None
 
@@ -274,6 +319,28 @@ class AppServerConfig(models.Model):
         # drift over a trailing slash or a missing scheme.
         url = self._normalize_url(self.client_url)
         self.client_url = url
+
+        # ALREADY ANSWERED. Same address as the status on file, and the names are
+        # still cached — so there is nobody to ask. Reaching across the network
+        # again costs two to three seconds and comes back with what is already on
+        # the screen.
+        #
+        # This is not a rare case. Normalisation alone produces it: typing the
+        # address with a trailing slash, or without the scheme, is a different
+        # string to Odoo and fires this method, and only here does it turn out to
+        # be the same server. Retyping the same address, or editing it and
+        # changing your mind, does the same.
+        #
+        # `db_failed` is checked because a failure must stay retryable — the
+        # server being down for a minute should not mean the address is written
+        # off until it is retyped from scratch. To re-read a server that has
+        # since GAINED a database, clear the field and enter it again: that
+        # blanks db_checked_url below, so the next entry is a genuine lookup.
+        if url == (self.db_checked_url or '') and not self.db_failed:
+            cached = self.env['app.server.db'].sudo().search_count(
+                [('server_url', '=', url)])
+            if cached:
+                return None
 
         try:
             names = self._fetch_databases(url)
@@ -284,6 +351,10 @@ class AppServerConfig(models.Model):
             self.client_db_id = False
             self.db_failed = True
             self.db_status = str(exc).split('\n')[0]
+            # Set on the FAILURE path too. Forgetting it here would leave the
+            # spinner turning for ever on exactly the case that needs the error
+            # read — a wrong address.
+            self.db_checked_url = url
             return {'warning': {
                 'title': "Couldn't load databases",
                 'message': str(exc),
@@ -294,6 +365,7 @@ class AppServerConfig(models.Model):
         self.db_failed = False
         self.db_status = "%d database%s found — choose one below." % (
             len(names), '' if len(names) == 1 else 's')
+        self.db_checked_url = url
 
         # Deliberately does NOT pick one, not even when the server offers only a
         # single database. Choosing the database is the admin's decision and it
