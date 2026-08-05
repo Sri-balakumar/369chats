@@ -67,11 +67,23 @@ class AppServerConfig(models.Model):
              "database this record lives in.")
     # Whether the last fetch found anything, so the form can show the dropdown or
     # fall back to the text box. Not for the app — purely a UI hint.
-    db_options = fields.Char(string='Databases found', readonly=True, copy=False)
+    # NOT readonly=True, and that is load-bearing rather than an oversight.
+    #
+    # A model-level readonly field is EXCLUDED from what the web client sends on
+    # save. These are filled in by the onchange below, so marking them readonly
+    # meant every one of them was written in the form, shown on screen, and then
+    # silently dropped on the way to the database — leaving NULL behind. That
+    # turned db_checked_url into a permanent disagreement with client_url, which
+    # the form reads as "a lookup is running" and spins for ever.
+    #
+    # They are invisible in the view instead, which is the honest way to say "not
+    # yours to type in": nobody can reach them, and what the onchange puts there
+    # survives a save.
+    db_options = fields.Char(string='Databases found', copy=False)
     # What happened on the last fetch, shown under the field. Two fields rather
     # than one so the form can colour a failure red without a JS widget.
-    db_status = fields.Char(string='Status', readonly=True, copy=False)
-    db_failed = fields.Boolean(string='Lookup failed', readonly=True, copy=False)
+    db_status = fields.Char(string='Status', copy=False)
+    db_failed = fields.Boolean(string='Lookup failed', copy=False)
     # The URL the status above was computed FOR — which is how the form knows a
     # lookup is in flight without polling anything.
     #
@@ -80,7 +92,7 @@ class AppServerConfig(models.Model):
     # URL while this field still holds the old one. That gap IS the loading
     # state, and the spinner is drawn from it. Nothing else can tell you: an
     # onchange is server-side and offers the client no progress at all.
-    db_checked_url = fields.Char(string='Status is for', readonly=True, copy=False)
+    db_checked_url = fields.Char(string='Status is for', copy=False)
 
     # `is_live`, NOT `active`. `active` is a magic field name in Odoo: the web
     # client hides those records from every list unless you go looking for them,
@@ -417,7 +429,15 @@ class AppServerConfig(models.Model):
         url = (row.client_url or '').strip().rstrip('/')
         if not url:
             return None
+        # The dropdown is consulted as well as the text field, and deliberately.
+        # They are kept in step by an onchange, but only while the form is open —
+        # and a saved row has already been found holding a chosen database in the
+        # dropdown and nothing in the text field. Reading one and not the other
+        # meant a row that looked correct on screen answered as if no database
+        # had been picked. Whichever of the two is filled in is what the admin
+        # chose.
+        db = (row.client_db or '').strip() or (row.client_db_id.name or '').strip()
         return {
             'url': url,
-            'db': row.client_db or fallback_db or '',
+            'db': db or fallback_db or '',
         }

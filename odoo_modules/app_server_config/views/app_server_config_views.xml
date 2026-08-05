@@ -69,12 +69,22 @@
                                    options="{'no_create': True, 'no_open': True}"
                                    placeholder="Select your database"/>
                             <!-- The value the app endpoint actually receives.
-                                 Read-only once the dropdown has supplied it;
-                                 editable when a fetch found nothing, which is
-                                 the real case of a server running with
-                                 list_db = False. -->
-                            <field name="client_db" placeholder="sales_test"
-                                   readonly="db_options != False"/>
+                                 Also the manual escape hatch when the target has
+                                 database listing turned off and the dropdown
+                                 above has nothing to offer.
+
+                                 NOT readonly. It used to be `readonly="db_options
+                                 != False"` — locked as soon as a lookup
+                                 succeeded — and Odoo does not send a readonly
+                                 field when the record is saved. So picking a
+                                 database from the dropdown filled this in on
+                                 screen and then dropped it on the way to the
+                                 database, leaving the one field /app/resolve
+                                 reads empty while the form showed it populated.
+                                 The onchange keeps it in step with the dropdown;
+                                 someone overtyping it is a far smaller problem
+                                 than it never being saved at all. -->
+                            <field name="client_db" placeholder="sales_test"/>
                         </group>
                         <group string="Admin">
                             <field name="name" placeholder="369Chats mobile app"/>

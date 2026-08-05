@@ -20,7 +20,7 @@ import { COLORS, SHADOW, RADIUS, SPACING, TOP, themed, useTheme, THEME_VARIANTS 
 import { Screen, Loader, EmptyState, Avatar, Sheet, PopupModal, Switch } from '../components/ui';
 import CameraCaptureModal from '../components/CameraCaptureModal';
 import * as chat from '../services/chat';
-import { requestOtp, verifyOtp } from '../services/appAuth';
+import { setAppPassword } from '../services/appAuth';
 import { saveSession } from '../api/session';
 import * as session from '../api/session';
 import { createLogger, isLoggingEnabled } from '../api/logger';
@@ -67,17 +67,15 @@ export default function ChatSettingsScreen({ user, onBack, onOpenGmeet, onOpenDe
   const [serverOpen, setServerOpen] = useState(false);
 
   // ── Change password (OTP), lifted from the old Profile tab ─────────────────
-  // Only offered to app-login users, since it resets the password tied to a
-  // mobile number — an Odoo device login has none.
+  // Only offered to app-login users, since the password is tied to a mobile
+  // number — an Odoo device login has none.
   const mobileDigits = String(user?.mobile || '').replace(/\D/g, '');
-  const [pwStep, setPwStep] = useState(null);   // null | 'confirm' | 'otp'
-  const [code, setCode] = useState('');
+  const [pwStep, setPwStep] = useState(null);   // null | 'set'
   const [newPw, setNewPw] = useState('');
   const [newPw2, setNewPw2] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [pwBusy, setPwBusy] = useState(false);
   const [pwErr, setPwErr] = useState('');
-  const [resendIn, setResendIn] = useState(0);  // seconds before "Resend" is allowed
 
   // Cheap and memoised in services/chat, so this costs nothing on a revisit.
   useEffect(() => {
@@ -87,13 +85,6 @@ export default function ChatSettingsScreen({ user, onBack, onOpenGmeet, onOpenDe
       .catch((e) => log.warn('gmeet status failed', e?.message));
     return () => { alive = false; };
   }, []);
-
-  // Tick the resend cooldown down while the OTP popup is open.
-  useEffect(() => {
-    if (pwStep !== 'otp' || resendIn <= 0) return undefined;
-    const id = setInterval(() => setResendIn((n) => Math.max(0, n - 1)), 1000);
-    return () => clearInterval(id);
-  }, [pwStep, resendIn]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -161,34 +152,28 @@ export default function ChatSettingsScreen({ user, onBack, onOpenGmeet, onOpenDe
     }
   };
 
-  const sendCode = async () => {
-    setPwBusy(true); setPwErr('');
-    try {
-      await requestOtp(mobileDigits);   // generic — always proceeds
-      setResendIn(10);
-      setPwStep('otp');
-    } catch (e) {
-      log.warn('forgot-pw: send code failed', e?.message);
-      setPwErr('Could not send the code. Try again.');
-    } finally { setPwBusy(false); }
-  };
-
-  const submitNewPw = async () => {
-    if (code.replace(/\D/g, '').length < 4) { setPwErr('Enter the 4-digit code.'); return; }
+  // NO WHATSAPP CODE HERE ANY MORE.
+  //
+  // This screen is only reachable while signed in, and /app_login/set_password
+  // is auth='user' — so the session already proves who is asking. Sending a code
+  // to confirm it proved nothing extra, cost a round trip over a channel that
+  // can be down, and meant somebody could be locked out of changing their own
+  // password because the server's WhatsApp had dropped.
+  //
+  // This is also the only place an app password can be SET, now that sign-up no
+  // longer asks for one. Anyone who wants the fallback comes here to create it.
+  const saveAppPassword = async () => {
     if (newPw.length < 4) { setPwErr('Password must be at least 4 characters.'); return; }
     if (newPw !== newPw2) { setPwErr('Passwords do not match.'); return; }
     setPwBusy(true); setPwErr('');
     try {
-      const res = await verifyOtp(mobileDigits, code.replace(/\D/g, ''), newPw);
-      if (!res.ok) { setPwErr(res.error || 'Incorrect or expired code.'); setPwBusy(false); return; }
-      // The verify re-authenticated the same user, so refresh the stored session
-      // and stay logged in.
-      await saveSession(res.user);
+      const res = await setAppPassword(newPw);
+      if (!res.ok) { setPwErr(res.error || 'Could not set the password.'); setPwBusy(false); return; }
       setPwStep(null);
-      Alert.alert('Password changed', 'Your app password has been updated.');
+      Alert.alert('Password set', 'You can now sign in with this password if WhatsApp is unavailable.');
     } catch (e) {
-      log.warn('forgot-pw: verify failed', e?.message);
-      setPwErr('Could not verify. Try again.');
+      log.warn('set app password failed', e?.message);
+      setPwErr('Could not set the password. Try again.');
     } finally { setPwBusy(false); }
   };
 
@@ -340,15 +325,18 @@ export default function ChatSettingsScreen({ user, onBack, onOpenGmeet, onOpenDe
 
         <Text style={s.section}>Account</Text>
         <View style={s.card}>
-          {/* Password reset is OTP-to-mobile, so it only applies to app logins. */}
+          {/* Only for app logins — an Odoo-only account has no app password. */}
           {!!mobileDigits && (
             <TouchableOpacity
               style={s.row}
               activeOpacity={0.7}
-              onPress={() => { setPwErr(''); setCode(''); setNewPw(''); setNewPw2(''); setResendIn(0); setPwStep('confirm'); }}
+              onPress={() => { setPwErr(''); setNewPw(''); setNewPw2(''); setPwStep('set'); }}
             >
               <Ionicons name="key-outline" size={20} color={COLORS.primary} />
-              <Text style={[s.rowLabel, { flex: 1 }]}>Change password</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={s.rowLabel}>App password</Text>
+                <Text style={s.rowHint}>Backup for when WhatsApp isn’t available</Text>
+              </View>
               <Ionicons name="chevron-forward" size={17} color={COLORS.faint} />
             </TouchableOpacity>
           )}
@@ -459,35 +447,14 @@ export default function ChatSettingsScreen({ user, onBack, onOpenGmeet, onOpenDe
 
       <CameraCaptureModal visible={cameraOpen} onClose={() => setCameraOpen(false)} onCapture={onCaptured} />
 
-      {/* Change password, step 1 — confirm the number the code goes to */}
-      <PopupModal visible={pwStep === 'confirm'} onClose={() => setPwStep(null)} title="Change password">
-        <View style={{ padding: SPACING.xl }}>
-          <Text style={s.pwBody}>
-            We'll send a 4-digit code to{' '}
-            <Text style={{ fontWeight: '900', color: COLORS.navy }}>{user?.mobile}</Text>.
-          </Text>
-          {!!pwErr && <Text style={s.pwErr}>{pwErr}</Text>}
-          <TouchableOpacity
-            style={[s.primaryBtn, pwBusy && { backgroundColor: COLORS.slate400 }]}
-            disabled={pwBusy} onPress={sendCode}
-          >
-            {pwBusy ? <ActivityIndicator color={COLORS.onPrimary} /> : <Text style={s.primaryTxt}>Send code</Text>}
-          </TouchableOpacity>
-        </View>
-      </PopupModal>
-
-      {/* Change password, step 2 — code + new password */}
-      <PopupModal visible={pwStep === 'otp'} onClose={() => setPwStep(null)} title="Enter code">
+      {/* One step. The session already proves who is asking — see saveAppPassword. */}
+      <PopupModal visible={pwStep === 'set'} onClose={() => setPwStep(null)} title="App password">
         <ScrollView style={{ maxHeight: 380 }}>
           <View style={{ padding: SPACING.xl }}>
             <Text style={s.pwBody}>
-              Enter the code sent to{' '}
-              <Text style={{ fontWeight: '800', color: COLORS.navy }}>{user?.mobile}</Text> and choose a new password.
+              You normally sign in with a WhatsApp code. A password is a backup for when
+              that isn’t available.
             </Text>
-            <TextInput
-              style={s.input} value={code} onChangeText={setCode} keyboardType="number-pad"
-              maxLength={4} placeholder="4-digit code" placeholderTextColor={COLORS.faint}
-            />
             <View style={s.pwRow}>
               <TextInput
                 style={[s.input, { flex: 1, marginBottom: 0 }]} value={newPw} onChangeText={setNewPw}
@@ -504,14 +471,9 @@ export default function ChatSettingsScreen({ user, onBack, onOpenGmeet, onOpenDe
             {!!pwErr && <Text style={s.pwErr}>{pwErr}</Text>}
             <TouchableOpacity
               style={[s.primaryBtn, pwBusy && { backgroundColor: COLORS.slate400 }]}
-              disabled={pwBusy} onPress={submitNewPw}
+              disabled={pwBusy} onPress={saveAppPassword}
             >
-              {pwBusy ? <ActivityIndicator color={COLORS.onPrimary} /> : <Text style={s.primaryTxt}>Verify & set password</Text>}
-            </TouchableOpacity>
-            <TouchableOpacity disabled={resendIn > 0 || pwBusy} onPress={sendCode} style={{ marginTop: SPACING.md }}>
-              <Text style={[s.resend, (resendIn > 0 || pwBusy) && { color: COLORS.faint }]}>
-                {resendIn > 0 ? `Resend code in ${resendIn}s` : 'Resend code'}
-              </Text>
+              {pwBusy ? <ActivityIndicator color={COLORS.onPrimary} /> : <Text style={s.primaryTxt}>Save password</Text>}
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -740,5 +702,5 @@ const s = themed((C) => ({
   pwErr: { fontSize: 12.5, color: C.red, fontWeight: '700', marginBottom: SPACING.sm },
   pwRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.sm },
   eye: { position: 'absolute', right: SPACING.lg },
-  resend: { fontSize: 13, color: C.primary, fontWeight: '800', textAlign: 'center' },
+  rowHint: { fontSize: 12, color: C.muted, marginTop: 2 },
 }));

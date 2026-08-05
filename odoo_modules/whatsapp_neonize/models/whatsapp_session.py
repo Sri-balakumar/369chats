@@ -78,6 +78,12 @@ class WhatsAppSession(models.Model):
         'Session Name', required=True, default='Default',
         help='A friendly name for this WhatsApp session',
     )
+    # NOTE: the session's `name` above is ALSO what the phone shows under
+    # Settings ▸ Linked Devices — see action_connect. Deliberately not a separate
+    # field: a second name to keep in step is a second name to get wrong, and
+    # adding a column to this module is not currently possible anyway (see the
+    # comment in action_connect about upgrading it on a database without
+    # point_of_sale).
     status = fields.Selection([
         ('disconnected', 'Disconnected'),
         ('waiting_qr', 'Scan QR Code'),
@@ -124,6 +130,7 @@ class WhatsAppSession(models.Model):
         try:
             from neonize.client import NewClient
             from neonize.events import ConnectedEv, MessageEv
+            from neonize.proto.waCompanionReg.WAWebProtobufsCompanionReg_pb2 import DeviceProps
         except ImportError as e:
             raise UserError(_(
                 "Neonize library not installed.\n\n"
@@ -160,7 +167,41 @@ class WhatsAppSession(models.Model):
             'qr_image': False,
         })
 
-        client = NewClient(db_path)
+        # Introduce ourselves properly. Without props, neonize pairs as
+        # "Neonize" on "Safari" (its own default, client.py:
+        # `DeviceProps(os="Neonize", platformType=SAFARI)`), so the entry sitting
+        # in someone's Linked Devices reads as an unfamiliar browser — which is
+        # exactly what that list exists to make you suspicious of. DESKTOP rather
+        # than SAFARI because that is what this is: a service on a server, not a
+        # browser tab.
+        #
+        # The session's own `name` is used, rather than a dedicated field: one
+        # name is easier to keep right than two, and reusing an existing column
+        # needs no module upgrade — a restart is enough.
+        #
+        # That second reason is not incidental. **`-u whatsapp_neonize` currently
+        # FAILS on sales_test**, before any change of ours, with:
+        #
+        #   INSERT INTO ir_model_inherit (model_id, parent_id, parent_field_id)
+        #        VALUES (1410, NULL, NULL)
+        #   NotNullViolation: null value in column "parent_id"
+        #
+        # 1410 is pos.order. Odoo computed an inheritance whose parent did not
+        # resolve to an ir_model row. It is NOT a missing point_of_sale — that is
+        # installed, and pos.order already carries valid inherit rows for
+        # mail.thread, portal.mixin, pos.bus.mixin and pos.load.mixin. The real
+        # cause is still unknown. Until it is found, this module cannot take a
+        # schema change on this database, so do not add fields here casually.
+        #
+        # ONLY READ WHEN PAIRING. WhatsApp records the name as the QR is scanned
+        # and keeps it for the life of the link, so changing it does nothing to a
+        # session that is already connected: that one must be unlinked on the
+        # phone and scanned again.
+        props = DeviceProps(
+            os=(self.name or '369Chats')[:64],
+            platformType=DeviceProps.DESKTOP,
+        )
+        client = NewClient(db_path, props=props)
         _wa_clients[session_id] = client
         _wa_status[session_id] = 'waiting_qr'
         _wa_locks[session_id] = threading.Lock()

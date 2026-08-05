@@ -134,8 +134,16 @@ export async function resolveServer() {
       //
       // It names the ANCHOR's database, never the target's. The target url+db
       // still come from the Odoo row and stay changeable.
+      //
+      // Sent with NO COOKIE (the trailing `false`). This route is auth='public'
+      // and has no use for a session — and carrying one is actively harmful:
+      // Odoo answers a flat 403 when a request holds both a session cookie and
+      // the X-Odoo-Database header naming a DIFFERENT database. A device that
+      // had once signed in elsewhere therefore had every single resolve refused,
+      // for ever, and it looked exactly like the network being down.
       const res = await jsonRpc(
         anchor, '/app/resolve', { app: appKey }, TIMEOUT_MS, anchorDb || null,
+        null, false,
       );
       if (res && res.status === true && res.url) {
         const out = { url: String(res.url).replace(/\/+$/, ''), db: res.db || '' };
@@ -148,9 +156,19 @@ export async function resolveServer() {
       if (res && res.configured === false) sawUnconfigured = true;
       log.info('no server for this app at', anchor, res?.error || '');
     } catch (e) {
-      // Unreachable from here: wrong for this platform (localhost on a real
-      // phone), off the network, or down. Try the next.
-      log.info('anchor unreachable', anchor, e?.message);
+      // A 403 here is NOT the network. Odoo returns it when the request carries
+      // a session cookie for one database and the header names another, so
+      // saying "unreachable" sends whoever reads this log hunting a fault that
+      // does not exist. The call above no longer sends a cookie, so this should
+      // now be unreachable in both senses — but if it ever comes back, it should
+      // arrive named.
+      if (e?.response?.status === 403) {
+        log.warn('anchor refused: a stale session disagrees with the database', anchor);
+      } else {
+        // Genuinely unreachable from here: wrong for this platform (localhost on
+        // a real phone), off the network, or down. Try the next.
+        log.info('anchor unreachable', anchor, e?.message);
+      }
     }
   }
 

@@ -51,11 +51,19 @@ export class AppServerDbProbe extends Component {
         return this.props.record.data;
     }
 
-    // A URL is entered and the status on file was computed for a different one
-    // (or for nothing yet) — so a lookup is out.
+    // A URL is entered, the record is being EDITED, and the status on file was
+    // computed for a different URL — so a lookup is out.
+    //
+    // `record.dirty` is what makes this safe. A lookup can only ever be in
+    // flight while someone is typing in the form; on a saved or freshly loaded
+    // record nothing is happening, whatever the fields say. Without that check,
+    // any row whose db_checked_url was empty — every row created before the
+    // field existed, and every row saved while it was still marked readonly and
+    // therefore silently dropped — opened with a spinner that turned for ever on
+    // a server that was configured perfectly well.
     get loading() {
         const url = (this.data.client_url || "").trim();
-        if (!url) {
+        if (!url || !this.props.record.dirty) {
             return false;
         }
         return url !== (this.data.db_checked_url || "");

@@ -151,7 +151,36 @@ export async function callKw(baseUrl, model, method, args = [], kwargs = {}) {
 // and RN implements xhr.upload.onprogress, so it works here on the plain JSON
 // route with no multipart needed. NOTE: `total` is the BASE64 body (~+33% of the
 // file), so drive any bar off these numbers rather than the raw file size.
-export async function jsonRpc(baseUrl, path, params = {}, timeout = TIMEOUT_MS, db = null, onProgress = null) {
+// Throw away whatever session this device is holding on `baseUrl`.
+//
+// THE DEADLOCK THIS BREAKS. Odoo refuses — a flat 403 raised before routing —
+// any request carrying a session cookie for one database alongside the
+// X-Odoo-Database header naming another ("Cannot use both the session_id cookie
+// and the x-odoo-database header"). A device that had once signed in against a
+// different database was then refused on every call, for ever, and could not fix
+// itself because everything it might call was refused the same way.
+//
+// /web/session/logout is the way out, and specifically because it is Odoo's own
+// `auth="none"` route: it needs NO database to run. Our own equivalent could not
+// work — with no header the request routes into the STALE database, which is
+// exactly the one that may not have our modules installed, and the call 404s.
+//
+// Answers 303 (it redirects a browser to the login page). We only want the
+// Set-Cookie that comes with it.
+export async function clearServerSession(baseUrl) {
+  const base = normalizeUrl(baseUrl);
+  try {
+    await axios.get(`${base}/web/session/logout`, {
+      timeout: TIMEOUT_MS, withCredentials: true, maxRedirects: 0,
+      validateStatus: () => true,   // 303 is the success case here
+    });
+    log.info('server session cleared', base);
+  } catch (e) {
+    log.warn('could not clear the server session', e?.message);
+  }
+}
+
+export async function jsonRpc(baseUrl, path, params = {}, timeout = TIMEOUT_MS, db = null, onProgress = null, credentials = true) {
   const base = normalizeUrl(baseUrl);
   log.info('jsonRpc →', path, log.redact(params));
   // Pre-login (public) routes have no session cookie yet, so on a multi-db
@@ -159,7 +188,16 @@ export async function jsonRpc(baseUrl, path, params = {}, timeout = TIMEOUT_MS, 
   const headers = db ? { ...JSONRPC_HEADERS, 'X-Odoo-Database': db } : JSONRPC_HEADERS;
   let res;
   try {
-    const cfg = { headers, timeout, withCredentials: true };
+    // `credentials: false` for calls that want NO cookie sent.
+    //
+    // Odoo refuses a request that carries both a session cookie and the
+    // X-Odoo-Database header when the two name different databases — a flat
+    // 403 before routing, with the database logged as "?". A device that had
+    // signed in against some other database therefore had every stateless call
+    // rejected for ever, and the failure read as a network fault.
+    //
+    // Defaults to true, so every existing caller behaves exactly as before.
+    const cfg = { headers, timeout, withCredentials: credentials };
     if (onProgress) {
       cfg.onUploadProgress = (e) => {
         try { onProgress(e.loaded || 0, e.total || 0); } catch (_) {}

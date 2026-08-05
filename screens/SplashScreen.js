@@ -17,7 +17,7 @@
 //     that can hang is a splash that can brick the app, so a failed load, a
 //     missing codec or a stalled decode all still fall through the timeout below.
 import React, { useEffect, useRef, useCallback } from 'react';
-import { View, StyleSheet, Dimensions } from 'react-native';
+import { View, StyleSheet, Dimensions, Animated, Easing } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useVideoPlayer, VideoView } from 'expo-video';
 
@@ -35,15 +35,33 @@ const MAX_MS = 6000;
 // Held after the video ends so the last frame is not snatched away mid-beat.
 const SETTLE_MS = 150;
 
+// The mark fades out over this before the next screen appears.
+//
+// It used to cut. The video is 1080×1080 on white and its last frame still shows
+// the mark, so the hand-off replaced a logo with plain white in a single frame —
+// which reads as a white flash rather than as an ending. Fading the mark out
+// against the same white the next screen starts on makes the seam invisible.
+const FADE_MS = 260;
+
 export default function SplashScreen({ onDone }) {
   const doneRef = useRef(false);
+  const fade = useRef(new Animated.Value(1)).current;
 
   // Guarded so playToEnd, an error and the timeout can all race harmlessly.
+  //
+  // The fade is deliberately INSIDE the guard and not a precondition of it: if
+  // the animation never calls back — a dropped frame callback, a backgrounded
+  // app — onDone still fires from the completion handler. A splash that can hang
+  // is a splash that can brick the app, which is the whole reason the timeout
+  // below exists.
   const finish = useCallback(() => {
     if (doneRef.current) return;
     doneRef.current = true;
-    onDone?.();
-  }, [onDone]);
+    Animated.timing(fade, {
+      toValue: 0, duration: FADE_MS, easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start(() => onDone?.());
+  }, [onDone, fade]);
 
   const player = useVideoPlayer(require('../assets/splash369.mp4'), (p) => {
     p.loop = false;
@@ -69,14 +87,16 @@ export default function SplashScreen({ onDone }) {
   return (
     <View style={s.root}>
       <StatusBar style="dark" />
-      <VideoView
-        style={s.video}
-        player={player}
-        contentFit="contain"
-        nativeControls={false}
-        allowsFullscreen={false}
-        allowsPictureInPicture={false}
-      />
+      <Animated.View style={{ opacity: fade }}>
+        <VideoView
+          style={s.video}
+          player={player}
+          contentFit="contain"
+          nativeControls={false}
+          allowsFullscreen={false}
+          allowsPictureInPicture={false}
+        />
+      </Animated.View>
     </View>
   );
 }

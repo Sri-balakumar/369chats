@@ -25,7 +25,15 @@ from odoo.http import request
 
 _logger = logging.getLogger(__name__)
 
-_WA_LABEL = 'App Login WhatsApp Sender'
+# The session's name in Odoo AND what the phone shows under Settings ▸ Linked
+# Devices — whatsapp.session.action_connect pairs using this. One name, so the
+# two cannot drift.
+#
+# It reads as the product rather than the module on purpose: whoever is auditing
+# their linked devices is looking for something they recognise. The neonize
+# default — "Neonize" on "Safari" — reads as an unfamiliar browser somebody else
+# signed in with, which is precisely what that list exists to reveal.
+_WA_LABEL = '369Chats App Login'
 
 
 class AppLoginAdmin(http.Controller):
@@ -326,12 +334,17 @@ class AppLoginAdmin(http.Controller):
             return denied
         Session = request.env['whatsapp.session'].sudo()
         session = self._wa_session() or Session.create({'name': _WA_LABEL})
+        # BEFORE action_connect, not after. The name is what the phone is told
+        # during pairing, so setting it afterwards would miss the only moment it
+        # is used and Linked Devices would keep saying "Neonize on Safari".
+        if session.name != _WA_LABEL:
+            session.write({'name': _WA_LABEL})
         try:
             session.action_connect()
         except Exception as exc:
             _logger.error("app_login wa connect failed: %s", exc)
             return {'status': False, 'message': str(exc)}
-        # After connect, not before: action_connect can reset the name.
+        # Re-asserted, because action_connect can reset it.
         if session.name != _WA_LABEL:
             session.write({'name': _WA_LABEL})
         return {'status': True, 'session_id': session.id, 'state': session.status}
